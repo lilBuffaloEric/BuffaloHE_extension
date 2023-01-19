@@ -3,7 +3,7 @@ package check
 import (
 	"fmt"
 	auxio "project1-fhe_extension/auxiliary_io"
-	invsqrt "project1-fhe_extension/inverse_sqrt"
+	nonpolyfunc "project1-fhe_extension/nonpoly_func"
 
 	"github.com/tuneinsight/lattigo/v4/ckks"
 	"github.com/tuneinsight/lattigo/v4/rlwe"
@@ -58,7 +58,7 @@ func Invsqrt_check() {
 	// Evaluation process
 	fmt.Printf("We first use taylor expansion (deg: %d) at point (%0.2f+%0.2f)/2+1 to have a relative good guess:\n", taylor_deg, a, b)
 	var ctGuess *rlwe.Ciphertext
-	ctGuess, err = invsqrt.TaylorInitNew(params, rlk, ciphertext, invsqrt.Inv_sqrt_taylor2[:])
+	ctGuess, err = nonpolyfunc.TaylorInitNew(params, rlk, ciphertext, nonpolyfunc.Inv_sqrt_taylor2[:])
 	if err != nil {
 		panic(err)
 	}
@@ -70,7 +70,7 @@ func Invsqrt_check() {
 	IterNum := 2
 	var ctApprox *rlwe.Ciphertext
 	fmt.Printf("Then we will use Newton method to approximate the exact Inverse Square Root result, with %d iteration", IterNum)
-	ctApprox, err = invsqrt.InvSqrtByNewton_dbg(params, rlk, sk, ciphertext, ctGuess, IterNum)
+	ctApprox, err = nonpolyfunc.InvSqrtByNewton_dbg(params, rlk, sk, ciphertext, ctGuess, IterNum)
 	if err != nil {
 		panic(err)
 	}

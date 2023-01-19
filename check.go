@@ -6,5 +6,6 @@ func main() {
 	//check.Invsqrt_check()
 	// check.SquareMatrix_product_check()
 	// check.SquareMatrix_encode_check()
-	check.SquareMatrix_permute_check()
+	// check.SquareMatrix_permute_check()
+	check.Piecewise_check()
 }

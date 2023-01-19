@@ -1,4 +1,4 @@
-package inverse_sqrt
+package nonpolyfunc
 
 import (
 	"fmt"
@@ -20,9 +20,9 @@ var (
 	}
 )
 
-func TaylorInitNew(params ckks.Parameters, rlk *rlwe.RelinearizationKey, ctIn *rlwe.Ciphertext, taylor []complex128) (ctOut *rlwe.Ciphertext, err error) {
+func TaylorInitNew(params ckks.Parameters, rlk *rlwe.RelinearizationKey, ctIn *rlwe.Ciphertext, apprxpoly []complex128) (ctOut *rlwe.Ciphertext, err error) {
 	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
-	poly := ckks.NewPoly(taylor)
+	poly := ckks.NewPoly(apprxpoly)
 	ctOut, err = evaluator.EvaluatePoly(ctIn, poly, ctIn.Scale)
 	return
 }
