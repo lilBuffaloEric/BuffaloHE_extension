@@ -1,5 +1,9 @@
 package check
 
+/*
+ * Check for funcs in nonpoly_func
+ */
+
 import (
 	"fmt"
 	auxio "project1-fhe_extension/auxiliary_io"
@@ -80,5 +84,42 @@ func Invsqrt_check() {
 	fmt.Printf("%d levels has been consumed. \n", ctGuess.Level()-ctApprox.Level())
 
 	auxio.Print_vector_f64(values, len(values))
+
+}
+
+func Softmax_check() {
+	params, err := ckks.NewParametersFromLiteral(ckks.PN15QP880)
+	if err != nil {
+		panic(err)
+	}
+
+	// encoder := ckks.NewEncoder(params)
+
+	// Keys
+	kgen := ckks.NewKeyGenerator(params)
+	sk, pk := kgen.GenKeyPair()
+
+	// Relinearization key
+	rlk := kgen.GenRelinearizationKey(sk, 1)
+
+	// Encryptor
+	encryptor := ckks.NewEncryptor(params, pk)
+
+	// Decryptor
+	// decryptor := ckks.NewDecryptor(params, sk)
+
+	// Evaluator
+	// evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
+
+	ptA := auxio.Encode_single_float64(params, 0.6, params.MaxLevel(), params.DefaultScale())
+	//ptB := auxio.Encode_single_float64(params, 0.3, params.MaxLevel(), params.DefaultScale())
+	ctA := encryptor.EncryptNew(ptA)
+	//ctB := encryptor.EncryptNew(ptB)
+	var ctInvA *rlwe.Ciphertext
+	ctInvA, err = nonpolyfunc.InvByGoldSchmidt(params, rlk, ctA, 1, 4)
+	if err != nil {
+		panic(err)
+	}
+	auxio.Quick_check_vector(params, sk, ctInvA)
 
 }

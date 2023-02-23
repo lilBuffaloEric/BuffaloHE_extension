@@ -26,6 +26,7 @@ func InvByGoldSchmidt(params ckks.Parameters, rlk *rlwe.RelinearizationKey, ctIn
 	cta0 := evaluator.AddConstNew(ctOut, 2)
 	ctb0 := evaluator.AddConstNew(ctOut, 1)
 	// Into the iteration.
+	// Two levels consumed for each iteration.
 	for i := 0; i < iterNum; i++ {
 		ctb0 = evaluator.MulRelinNew(ctb0, ctb0)
 		err = evaluator.Rescale(ctb0, ctIn.Scale, ctb0)

@@ -3,7 +3,6 @@ package matrix_mult
 import (
 	"errors"
 	"math"
-	auxio "project1-fhe_extension/auxiliary_io"
 )
 
 func Sigma_permute(A [][]float64, d int) (rslt [][]float64) {
@@ -130,14 +129,32 @@ func Row_ordering_multiple(a []float64, g int) (A [][]float64, err error) {
 }
 
 func Row_orderingInv(A [][]float64) (a []float64, err error) {
-	if len(A) != len(A[0]) {
-		return nil, errors.New("err: input matrix is not a square one")
+	/*
+		if len(A) != len(A[0]) {
+			return nil, errors.New("err: input matrix is not a square one")
+		}
+	*/
+	row := len(A)
+	col := len(A[0])
+	a = make([]float64, row*col)
+	for i := 0; i < row; i++ {
+		for j := 0; j < col; j++ {
+			a[i*col+j] = A[i][j]
+		}
 	}
-	d := len(A)
+	return
+}
+
+func Row_orderingInvZeroPad(A [][]float64, d int) (a []float64, err error) {
+	if d < len(A) || d < len(A[0]) {
+		return nil, errors.New("square dimension smaller than original colsize and rowsize")
+	}
+	row := len(A)
+	col := len(A[0])
 	a = make([]float64, d*d)
-	for i := 0; i < d; i++ {
-		for j := 0; j < d; j++ {
-			a[i*d+j] = A[i][j]
+	for i := 0; i < row; i++ {
+		for j := 0; j < col; j++ {
+			a[i*col+j] = A[i][j]
 		}
 	}
 	return
@@ -249,23 +266,23 @@ func SquareMatrix_product_permute_version(A [][]float64, B [][]float64) (C [][]f
 	}
 	for k := 0; k < d; k++ {
 		colshiftA := Sigma_permute(A, d)
-		auxio.Print_matrix_f64_full_2d(colshiftA, d, d)
+		//auxio.Print_matrix_f64_full_2d(colshiftA, d, d)
 		rowshiftB := Tao_permute(B, d)
-		auxio.Print_matrix_f64_full_2d(rowshiftB, d, d)
+		//auxio.Print_matrix_f64_full_2d(rowshiftB, d, d)
 		for i := 0; i < k; i++ {
 			colshiftA = Phi_permute(colshiftA, d)
-			auxio.Print_matrix_f64_full_2d(colshiftA, d, d)
+			//auxio.Print_matrix_f64_full_2d(colshiftA, d, d)
 			rowshiftB = Psi_permute(rowshiftB, d)
-			auxio.Print_matrix_f64_full_2d(rowshiftB, d, d)
+			//auxio.Print_matrix_f64_full_2d(rowshiftB, d, d)
 		}
 		var mult_rslt [][]float64
 		mult_rslt, err = Hadmard_matrix_mult(colshiftA, rowshiftB)
-		auxio.Print_matrix_f64_full_2d(mult_rslt, d, d)
+		//auxio.Print_matrix_f64_full_2d(mult_rslt, d, d)
 		if err != nil {
 			return nil, err
 		}
 		C, err = Hadmard_matrix_add(C, mult_rslt)
-		auxio.Print_matrix_f64_full_2d(C, d, d)
+		//auxio.Print_matrix_f64_full_2d(C, d, d)
 		if err != nil {
 			return nil, err
 		}
@@ -343,6 +360,131 @@ func Gen_rowShift_diagonalVectors(d int, k int) (U map[int][]float64, err error)
 	U[k*d] = make([]float64, d*d)
 	for i := 0; i < d*d; i++ {
 		U[k*d][i] = 1
+	}
+	return
+}
+
+func Gen_transpose_diagonalVectors(d int) (U map[int][]float64, err error) {
+	if d <= 0 {
+		return nil, errors.New("dimension d <= 0 ")
+	}
+	U = make(map[int][]float64, 2*d-1)
+	for i := -d + 1; i < d; i++ {
+		U[(d-1)*i] = make([]float64, d*d)
+		for l := 0; l < d*d; l++ {
+			k := (l - i) % (d + 1)
+			j := (l - i) / (d + 1)
+			if i >= 0 {
+				if k == 0 && 0 <= j && j < d-i {
+					U[(d-1)*i][l] = 1
+				} else {
+					U[(d-1)*i][l] = 0
+				}
+			} else {
+				if k == 0 && -i <= j && j < d {
+					U[(d-1)*i][l] = 1
+				} else {
+					U[(d-1)*i][l] = 0
+				}
+			}
+		}
+	}
+	return
+}
+
+func Gen_trans_C_tao_diagonalVectors(d int) (U map[int][]float64, err error) {
+	var U_tao map[int][]float64
+	var U_trans map[int][]float64
+	var sum float64
+	U_tao, err = Gen_tao_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+	U_trans, err = Gen_transpose_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+	M_tao := DiagonalVectors2Matrix(U_tao, d*d)
+	M_trans := DiagonalVectors2Matrix(U_trans, d*d)
+	M := make([][]float64, d*d)
+	for i := 0; i < d*d; i++ {
+		M[i] = make([]float64, d*d)
+	}
+	// Do Matrix Mult
+	for i := 0; i < d*d; i++ {
+		for j := 0; j < d*d; j++ {
+			sum = 0
+			for k := 0; k < d*d; k++ {
+				// data[i]
+				sum += M_tao[j][k] * M_trans[k][i]
+			}
+			M[j][i] = sum
+		}
+	}
+	// Transform to Diagonal Form
+	U, err = Matrix2DiagonalVectors(M)
+	return
+}
+
+func plainDotMult(a []int, b []int) int {
+	n := len(a)
+	res := 0
+	for i := 0; i < n; i++ {
+		res += a[i] * b[i]
+	}
+	return res
+
+}
+
+func IsInMap(key int, M map[int]interface{}) int {
+	_, ok := M[key]
+	if ok {
+		return 1
+	} else {
+		return 0
+	}
+}
+
+func isAllzero(arr []float64) int {
+	for i := 0; i < len(arr); i++ {
+		if arr[i] != 0 {
+			return 0
+		}
+	}
+	return 1
+}
+
+func DiagonalVectors2Matrix(U map[int][]float64, n int) (M [][]float64) {
+	M = make([][]float64, n)
+	for i := 0; i < n; i++ {
+		M[i] = make([]float64, n)
+	}
+	for key, data := range U {
+		i := 0
+		j := (key + n) % n
+		for ; i < n; i++ {
+			M[i][j] = data[i]
+			j = (j + 1) % n
+		}
+	}
+	return
+}
+
+func Matrix2DiagonalVectors(M [][]float64) (U map[int][]float64, err error) {
+	if len(M[0]) != len(M) {
+		return nil, errors.New("input matrix is not a square one")
+	}
+	U = make(map[int][]float64, len(M))
+	for l := 0; l < len(M); l++ {
+		U[l] = make([]float64, len(M))
+		j := l
+		for i := 0; i < len(M); i++ {
+			U[l][i] = M[i][j]
+			j = (j + 1) % len(M)
+		}
+		if isAllzero(U[l]) == 1 {
+			delete(U, l)
+		}
 	}
 	return
 }

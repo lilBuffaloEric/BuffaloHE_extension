@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	auxio "project1-fhe_extension/auxiliary_io"
+	"time"
 
 	"github.com/tuneinsight/lattigo/v4/ckks"
 	"github.com/tuneinsight/lattigo/v4/rlwe"
@@ -96,6 +97,94 @@ func SquareMatrix_Mult_dbg(params ckks.Parameters, sk *rlwe.SecretKey, rlk *rlwe
 		}
 	}
 	// err = evaluator.Rescale(ctOut, Scale, ctOut)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%d levels consumed for Matrix Multiplication\n", utils.MinInt(ctMatrixA.Level(), ctMatrixB.Level())-ctOut.Level())
+	return
+}
+
+func SquareMatrix_MultBSGS_dbg(params ckks.Parameters, sk *rlwe.SecretKey, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctMatrixA *rlwe.Ciphertext, ctMatrixB *rlwe.Ciphertext, d int, sigmaBSGSRatio float64, taoBSGSRatio float64) (ctOut *rlwe.Ciphertext, err error) {
+	if float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d^2 != 2^logSlots")
+	}
+	encoder := ckks.NewEncoder(params)
+	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk})
+	LTA := make([]ckks.LinearTransform, d)
+	LTB := make([]ckks.LinearTransform, d) // option 1
+	//StepsB := make([]int, d) // option 2
+	var U_sigma map[int][]float64
+	var U_tao map[int][]float64
+	var U_colShift_k map[int][]float64
+	var U_rowShift_k map[int][]float64 // option 1
+	U_sigma, err = Gen_sigma_diagonalVecotrs(d)
+	if err != nil {
+		return nil, err
+	}
+	U_tao, err = Gen_tao_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+
+	sigmaALT := ckks.GenLinearTransformBSGS(encoder, U_sigma, ctMatrixA.Level(), ctMatrixA.Scale, sigmaBSGSRatio, params.LogSlots())
+	taoBLT := ckks.GenLinearTransformBSGS(encoder, U_tao, ctMatrixB.Level(), ctMatrixB.Scale, taoBSGSRatio, params.LogSlots())
+	now := time.Now() // dbg testing
+	ctSigmaA_list := evaluator.LinearTransformNew(ctMatrixA, sigmaALT)
+	ctTaoB_list := evaluator.LinearTransformNew(ctMatrixB, taoBLT)
+	fmt.Printf("BSGS LT consume %s\n", time.Since(now)) // dbg testing
+	var ctSigmaA *rlwe.Ciphertext
+	var ctTaoB *rlwe.Ciphertext
+	var ctMatrixALT []*rlwe.Ciphertext
+	//var ctMatrixBLT map[int]*rlwe.Ciphertext // option 2
+	var ctMatrixBLT []*rlwe.Ciphertext // option 1
+	err = evaluator.Rescale(ctSigmaA_list[0], ctMatrixA.Scale, ctSigmaA_list[0])
+	if err != nil {
+		return nil, err
+	}
+	ctSigmaA = ctSigmaA_list[0]
+	err = evaluator.Rescale(ctTaoB_list[0], ctMatrixB.Scale, ctTaoB_list[0])
+	if err != nil {
+		return nil, err
+	}
+	ctTaoB = ctTaoB_list[0]
+	for k := 0; k < d; k++ {
+		U_colShift_k, err = Gen_colShift_diagonalVectors(d, k)
+		if err != nil {
+			return nil, err
+		}
+		LTA[k] = ckks.GenLinearTransform(encoder, U_colShift_k, ctSigmaA.Level(), ctSigmaA.Scale, params.LogSlots())
+		//StepsB[k] = k * d //option 2
+		U_rowShift_k, err = Gen_rowShift_diagonalVectors(d, k)                                                   // option 1
+		LTB[k] = ckks.GenLinearTransform(encoder, U_rowShift_k, ctTaoB.Level(), ctTaoB.Scale, params.LogSlots()) // option 1
+	}
+	ctMatrixALT = evaluator.LinearTransformNew(ctSigmaA, LTA)
+	//ctMatrixBLT = evaluator.RotateHoistedNew(ctTaoB, StepsB) // option 2
+	ctMatrixBLT = evaluator.LinearTransformNew(ctTaoB, LTB) // option 1
+	for k := 0; k < d; k++ {
+		err = evaluator.Rescale(ctMatrixALT[k], ctSigmaA.Scale, ctMatrixALT[k])
+		if err != nil {
+			return nil, err
+		}
+		err = evaluator.Rescale(ctMatrixBLT[k], ctTaoB.Scale, ctMatrixBLT[k]) // option 1
+		if k == 0 {
+			//ctOut = evaluator.MulRelinNew(ctMatrixALT[k], ctMatrixBLT[k*d]) // option 2
+			var ctTemp *rlwe.Ciphertext                                             // dbg testing
+			ctTemp, err = RowShift_linearTransform(params, rlk, galk, ctTaoB, d, 0) // dbg testing
+			// auxio.Quick_check_matrix(params, sk, ctTemp, d, d)                      // dbg testing
+			ctOut = evaluator.MulNew(ctMatrixALT[k], ctTemp) // option 1 dbg testing
+
+		} else {
+			//ctOut = evaluator.AddNew(ctOut, evaluator.MulRelinNew(ctMatrixALT[k], ctMatrixBLT[k*d])) // option 2
+			//ctTemp := evaluator.MulRelinNew(ctMatrixALT[k], ctMatrixBLT[k]) // dbg testing
+			//fmt.Printf("middle mult of iteration no.%d checking:\n", k)     // dbg testing
+			//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)              // dbg testing
+			evaluator.MulAndAdd(ctMatrixALT[k], ctMatrixBLT[k], ctOut) // option 1
+			// ctOut = evaluator.AddNew(ctOut, evaluator.MulNew(ctMatrixALT[k], ctMatrixBLT[k])) // option 1 (redundant)
+		}
+		//fmt.Printf("middle result of iteration no.%d checking:\n", k) // dbg testing
+		//auxio.Quick_check_matrix(params, sk, ctOut, d, d)             // dbg testing
+	}
+	evaluator.Relinearize(ctOut, ctOut)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +291,7 @@ func RectangleMatrix_Mult_withColOrder_dbg(params ckks.Parameters, sk *rlwe.Secr
 			if err != nil {
 				return nil, err
 			}
-			ctReplicatedA, err = Matrix_rowTotalSum(params, galk, ctMaskedA, m0, m1)
+			ctReplicatedA, err = Matrix_rowTotalSum_withColOrder(params, galk, ctMaskedA, m0, m1)
 			if err != nil {
 				return nil, err
 			}
@@ -224,7 +313,7 @@ func RectangleMatrix_Mult_withColOrder_dbg(params ckks.Parameters, sk *rlwe.Secr
 			if err != nil {
 				return nil, err
 			}
-			ctReplicatedA, err = Matrix_rowTotalSum(params, galk, ctMaskedA, m0, m1)
+			ctReplicatedA, err = Matrix_rowTotalSum_withColOrder(params, galk, ctMaskedA, m0, m1)
 			if err != nil {
 				return nil, err
 			}

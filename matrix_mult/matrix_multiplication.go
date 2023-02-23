@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	auxio "project1-fhe_extension/auxiliary_io"
+	"time"
 
 	"github.com/tuneinsight/lattigo/v4/ckks"
 	"github.com/tuneinsight/lattigo/v4/rlwe"
@@ -12,8 +13,8 @@ import (
 )
 
 func Sigma_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int) (ctOut *rlwe.Ciphertext, err error) {
-	if d <= 0 || float64(d*d) > math.Pow(2, float64(params.LogSlots())) {
-		return nil, errors.New("d<0 or d^2 > 2^logSlots")
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
 	}
 	var U_sigma map[int][]float64
 	U_sigma, err = Gen_sigma_diagonalVecotrs(d)
@@ -30,13 +31,36 @@ func Sigma_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey,
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%d levels consumed for LinearTransform\n", ctIn.Level()-ctOut.Level())
+	fmt.Printf("%d levels consumed for Sigma LinearTransform\n", ctIn.Level()-ctOut.Level())
+	return
+}
+
+func Sigma_linearTransformBSGS(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int, BSGSRatio float64) (ctOut *rlwe.Ciphertext, err error) {
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
+	}
+	var U_sigma map[int][]float64
+	U_sigma, err = Gen_sigma_diagonalVecotrs(d)
+	if err != nil {
+		return nil, err
+	}
+	Scale := ctIn.Scale
+	encoder := ckks.NewEncoder(params)
+	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk})
+	sigmaLT := ckks.GenLinearTransformBSGS(encoder, U_sigma, ctIn.Level(), Scale, BSGSRatio, params.LogSlots())
+	ctOut_list := evaluator.LinearTransformNew(ctIn, sigmaLT)
+	ctOut = ctOut_list[0]
+	err = evaluator.Rescale(ctOut, ctIn.Scale, ctOut)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%d levels consumed for Sigma LinearTransformBSGS\n", ctIn.Level()-ctOut.Level())
 	return
 }
 
 func Tao_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int) (ctOut *rlwe.Ciphertext, err error) {
-	if d <= 0 || float64(d*d) > math.Pow(2, float64(params.LogSlots())) {
-		return nil, errors.New("d<0 or d^2 > 2^logSlots")
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
 	}
 	var U_tao map[int][]float64
 	U_tao, err = Gen_tao_diagonalVectors(d)
@@ -52,13 +76,35 @@ func Tao_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, g
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%d levels consumed for LinearTransform\n", ctIn.Level()-ctOut.Level())
+	fmt.Printf("%d levels consumed for Tao LinearTransform\n", ctIn.Level()-ctOut.Level())
+	return
+}
+
+func Tao_linearTransformBSGS(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int, BSGSRatio float64) (ctOut *rlwe.Ciphertext, err error) {
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
+	}
+	var U_tao map[int][]float64
+	U_tao, err = Gen_tao_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+	encoder := ckks.NewEncoder(params)
+	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk})
+	taoLT := ckks.GenLinearTransformBSGS(encoder, U_tao, ctIn.Level(), ctIn.Scale, BSGSRatio, params.LogSlots())
+	ctOut_list := evaluator.LinearTransformNew(ctIn, taoLT)
+	ctOut = ctOut_list[0]
+	err = evaluator.Rescale(ctOut, ctIn.Scale, ctOut)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%d levels consumed for Tao LinearTransformBSGS\n", ctIn.Level()-ctOut.Level())
 	return
 }
 
 func ColShift_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int, k int) (ctOut *rlwe.Ciphertext, err error) {
-	if d <= 0 || float64(d*d) > math.Pow(2, float64(params.LogSlots())) {
-		return nil, errors.New("d<0 or d^2 > 2^logSlots")
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
 	}
 	if k <= -d || k >= d {
 		return nil, errors.New("k <= -d, k >= d")
@@ -81,13 +127,13 @@ func ColShift_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationK
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%d levels consumed for LinearTransform\n", ctIn.Level()-ctOut.Level())
+	fmt.Printf("%d levels consumed for ColShift LinearTransform\n", ctIn.Level()-ctOut.Level())
 	return
 }
 
 func RowShift_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int, k int) (ctOut *rlwe.Ciphertext, err error) {
-	if d <= 0 || float64(d*d) > math.Pow(2, float64(params.LogSlots())) {
-		return nil, errors.New("d<0 or d^2 > 2^logSlots")
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
 	}
 	if k <= -d || k >= d {
 		return nil, errors.New("k <= -d, k >= d")
@@ -110,6 +156,52 @@ func RowShift_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationK
 	if err != nil {
 		return nil, err
 	}
+	fmt.Printf("%d levels consumed for RowShift LinearTransform\n", ctIn.Level()-ctOut.Level())
+	return
+}
+
+func Transpose_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int) (ctOut *rlwe.Ciphertext, err error) {
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
+	}
+
+	var U_transpose map[int][]float64
+	U_transpose, err = Gen_transpose_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+
+	encoder := ckks.NewEncoder(params)
+	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk})
+	transposeLT := ckks.GenLinearTransform(encoder, U_transpose, ctIn.Level(), ctIn.Scale, params.LogSlots())
+	ctOut_list := evaluator.LinearTransformNew(ctIn, transposeLT)
+	ctOut = ctOut_list[0]
+	err = evaluator.Rescale(ctOut, ctIn.Scale, ctOut)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%d levels consumed for Transpose LinearTransform\n", ctIn.Level()-ctOut.Level())
+	return
+}
+
+func TransposeCtao_linearTransform(params ckks.Parameters, rlk *rlwe.RelinearizationKey, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, d int) (ctOut *rlwe.Ciphertext, err error) {
+	if d <= 0 || float64(d*d) != math.Pow(2, float64(params.LogSlots())) {
+		return nil, errors.New("d<0 or d^2 != 2^logSlots")
+	}
+	var U_transCtao map[int][]float64
+	U_transCtao, err = Gen_trans_C_tao_diagonalVectors(d)
+	if err != nil {
+		return nil, err
+	}
+	encoder := ckks.NewEncoder(params)
+	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk})
+	transCtaoLT := ckks.GenLinearTransform(encoder, U_transCtao, ctIn.Level(), ctIn.Scale, params.LogSlots())
+	ctOut_list := evaluator.LinearTransformNew(ctIn, transCtaoLT)
+	ctOut = ctOut_list[0]
+	err = evaluator.Rescale(ctOut, ctIn.Scale, ctOut)
+	if err != nil {
+		return nil, err
+	}
 	fmt.Printf("%d levels consumed for LinearTransform\n", ctIn.Level()-ctOut.Level())
 	return
 }
@@ -123,7 +215,7 @@ func SquareMatrix_Mult(params ckks.Parameters, rlk *rlwe.RelinearizationKey, gal
 	LTA := make([]ckks.LinearTransform, d)
 	LTB := make([]ckks.LinearTransform, d)
 	// var LTtest ckks.LinearTransform // dbg testing
-
+	now := time.Now() // dbg testing
 	var U_sigma map[int][]float64
 	var U_tao map[int][]float64
 	var U_colShift_k map[int][]float64
@@ -139,8 +231,10 @@ func SquareMatrix_Mult(params ckks.Parameters, rlk *rlwe.RelinearizationKey, gal
 
 	sigmaALT := ckks.GenLinearTransform(encoder, U_sigma, ctMatrixA.Level(), ctMatrixA.Scale, params.LogSlots())
 	taoBLT := ckks.GenLinearTransform(encoder, U_tao, ctMatrixB.Level(), ctMatrixB.Scale, params.LogSlots())
+	// now := time.Now() // dbg testing
 	ctSigmaA_list := evaluator.LinearTransformNew(ctMatrixA, sigmaALT)
 	ctTaoB_list := evaluator.LinearTransformNew(ctMatrixB, taoBLT)
+	// fmt.Printf("normal LT consume %s\n", time.Since(now)) // dbg testing
 	var ctSigmaA *rlwe.Ciphertext
 	var ctTaoB *rlwe.Ciphertext
 	err = evaluator.Rescale(ctSigmaA_list[0], ctMatrixA.Scale, ctSigmaA_list[0])
@@ -191,22 +285,27 @@ func SquareMatrix_Mult(params ckks.Parameters, rlk *rlwe.RelinearizationKey, gal
 		// auxio.Quick_check_matrix_full(params, sk, ctMatrixALT[k], d, d) // dbg testing
 		// auxio.Quick_check_matrix_full(params, sk, ctMatrixBLT[k], d, d) // FIXME: Unknow error occurs in the first result of ctMatrixBLT
 		if k == 0 {
-			ctOut = evaluator.MulRelinNew(ctSigmaA, ctTaoB)
+			var ctTemp *rlwe.Ciphertext                                             // dbg testing
+			ctTemp, err = RowShift_linearTransform(params, rlk, galk, ctTaoB, d, 0) // dbg testing
+			ctOut = evaluator.MulNew(ctMatrixALT[k], ctTemp)                        // dbg testing
 			// auxio.Quick_check_matrix_full(params, sk, ctOut, d, d) // dbg testing
 
 		} else {
-			ctOut = evaluator.AddNew(ctOut, evaluator.MulRelinNew(ctMatrixALT[k], ctMatrixBLT[k]))
+			evaluator.MulAndAdd(ctMatrixALT[k], ctMatrixBLT[k], ctOut) // dbg testing
 			// auxio.Quick_check_matrix_full(params, sk, ctOut, d, d) // dbg testing
 		}
 	}
 	// err = evaluator.Rescale(ctOut, Scale, ctOut)
+	evaluator.Relinearize(ctOut, ctOut)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("%d levels consumed for Matrix Multiplication\n", utils.MinInt(ctMatrixA.Level(), ctMatrixB.Level())-ctOut.Level())
+
+	fmt.Printf("%d levels, %s consumed for Matrix Multiplication\n", utils.MinInt(ctMatrixA.Level(), ctMatrixB.Level())-ctOut.Level(), time.Since(now))
 	return
 }
 
+// diagonal masking only
 func Matrix_masking_withRowOrder(params ckks.Parameters, rlk *rlwe.RelinearizationKey, ctIn *rlwe.Ciphertext, m0 int, m1 int, l int, i int) (ctOut *rlwe.Ciphertext, err error) {
 	if l <= 0 || m0 <= 0 || m1 <= 0 {
 		return nil, errors.New("l<=0 || m0 <= 0 || m1 <= 0")
@@ -248,6 +347,7 @@ func Matrix_masking_withRowOrder(params ckks.Parameters, rlk *rlwe.Relinearizati
 	return
 }
 
+// diagonal masking only
 func Matrix_masking_withColOrder(params ckks.Parameters, rlk *rlwe.RelinearizationKey, ctIn *rlwe.Ciphertext, m0 int, m1 int, l int, i int) (ctOut *rlwe.Ciphertext, err error) {
 	if l <= 0 || m0 <= 0 || m1 <= 0 {
 		return nil, errors.New("l<=0 || m0 <= 0 || m1 <= 0")
@@ -290,8 +390,12 @@ func Matrix_masking_withColOrder(params ckks.Parameters, rlk *rlwe.Relinearizati
 }
 
 // input Ciphertext must be some encryption of a plaintext space that can be represented by a Matrix with size m0 x m1,
-// which means m0 x m1 = 2^{logslots}. Moreover, the plaintext matrix should be column ordering encoded.
-func Matrix_rowTotalSum(params ckks.Parameters, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, m0 int, m1 int) (ctOut *rlwe.Ciphertext, err error) {
+// which means m0 x m1 = 2^{logslots}.
+// Moreover, If the plaintext matrix is column-ordering encoded, then for each row of the plain matrix,
+// all the elements (in the row) will become the sum of themselves.
+// If the plaintext matrix is row-ordering encoded, then for each column of the plain matrix,
+// all the elements (in the column) will become the sum of themselves.
+func Matrix_rowTotalSum_withColOrder(params ckks.Parameters, galk *rlwe.RotationKeySet, ctIn *rlwe.Ciphertext, m0 int, m1 int) (ctOut *rlwe.Ciphertext, err error) {
 	if m1 <= 0 || m0 <= 0 {
 		return nil, errors.New("invalid input: m1 <= 0 or m0 <= 0 ")
 	}
@@ -305,22 +409,6 @@ func Matrix_rowTotalSum(params ckks.Parameters, galk *rlwe.RotationKeySet, ctIn 
 		evaluator.Add(ctOut, ctTemp, ctOut)
 	}
 	return
-	/*
-		// Incomplete design.....
-		m1Len := int(math.Ceil(math.Log2(float64(m1))))
-		e := 1
-		ctOut = ctIn // exists risk....
-		for j := m1Len - 2; j >= 0; j-- {
-			ctTemp := evaluator.RotateNew(ctOut, e)
-			evaluator.Add(ctOut, ctTemp, ctOut)
-			e = 2 * e
-			if (1<<j)&m1 == 1 {
-				ctTemp = evaluator.RotateNew(ctOut, e)
-				evaluator.Add(ctIn, ctTemp, ctOut)
-				e = e + 1
-			}
-		}
-	*/
 }
 
 // input Ciphertext must be some encryption of a plaintext space that can be represented by a Matrix with size m0 x m1,
@@ -424,7 +512,7 @@ func RectangleMatrix_Mult_withColOrder(params ckks.Parameters, galk *rlwe.Rotati
 			if err != nil {
 				return nil, err
 			}
-			ctReplicatedA, err = Matrix_rowTotalSum(params, galk, ctMaskedA, m0, m1)
+			ctReplicatedA, err = Matrix_rowTotalSum_withColOrder(params, galk, ctMaskedA, m0, m1)
 			if err != nil {
 				return nil, err
 			}
@@ -446,7 +534,7 @@ func RectangleMatrix_Mult_withColOrder(params ckks.Parameters, galk *rlwe.Rotati
 			if err != nil {
 				return nil, err
 			}
-			ctReplicatedA, err = Matrix_rowTotalSum(params, galk, ctMaskedA, m0, m1)
+			ctReplicatedA, err = Matrix_rowTotalSum_withColOrder(params, galk, ctMaskedA, m0, m1)
 			if err != nil {
 				return nil, err
 			}
