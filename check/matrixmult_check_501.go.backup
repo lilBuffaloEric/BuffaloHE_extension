@@ -545,10 +545,6 @@ func PCA_check(loadkeysFromDisk bool) {
 	// runtime.GOMAXPROCS(6)
 	d := 1 << 7
 
-	// MaxDiagVec
-	SigmaMaxDiagVec := d / 4
-	TauMaxDiagVec := (d / 4) * d
-
 	// necessary file paths:
 	var KeysPath = "Keys"
 	var Rtk4Transpose_path = "Rtk4Transpose"
@@ -621,7 +617,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		}
 	}
 
-	inputLevel := 9
+	inputLevel := 8
 
 	// Encryptor
 	encryptor := ckks.NewEncryptor(params, pk)
@@ -646,14 +642,14 @@ func PCA_check(loadkeysFromDisk bool) {
 
 	// create the Map of Sigma LinearTransformation
 	fmt.Printf("create the Map of Sigma LinearTransformation\n")
-	DSigmaDiagonalMaps1, DSigmaDiagonalMaps2, err := mtrxmult.GenSigmaDiagnalDecomposeMatrices(d, SigmaMaxDiagVec)
+	DSigmaDiagonalMaps1, DSigmaDiagonalMaps2, err := mtrxmult.GenSigmaDiagnalDecomposeMatrices(d, d/2)
 	if err != nil {
 		panic(err)
 	}
 
 	// create the Map of Tau LinearTransformation
 	fmt.Printf("create the Map of Tau LinearTransformation\n")
-	DTauDiagonalMaps, err := mtrxmult.GenTauDiagonalDecomposeMatrices(d, TauMaxDiagVec)
+	DTauDiagonalMaps, err := mtrxmult.GenTauDiagonalDecomposeMatrices(d, d/2*d)
 	if err != nil {
 		panic(err)
 	}
@@ -810,7 +806,6 @@ func PCA_check(loadkeysFromDisk bool) {
 	galk4Transpose = nil
 	galk4MtrxMult = nil
 	galk4RowtotalSum = nil
-	debug.FreeOSMemory()
 
 	// Construct cols-1/matrixCols x cols-1/matrixCols ciphertexts:
 	Cov := make([][]*rlwe.Ciphertext, (cols-1)/matrixCols)
@@ -978,7 +973,6 @@ func PCA_check(loadkeysFromDisk bool) {
 		for idx := range ctORSBT_SigmaDecomp {
 			if ctORSBT_SigmaDecomp[idx] == nil {
 				wg.Wait()
-				nowtmp := time.Now()
 				var ctORSBT_SigmaDecompTmp [][]*rlwe.Ciphertext
 				if idx+maxSubRoutes > len(ctORSBT) {
 					fmt.Printf("Computing SigmaLinTrans for ctORSBT[%d:%d]\n", idx, len(ctORSBT))
@@ -992,13 +986,10 @@ func PCA_check(loadkeysFromDisk bool) {
 				}
 				fmt.Printf("ctORSBT_SigmaDecompTmp occupying %d MB\n", ctORSBT_SigmaDecompTmp[0][0].MarshalBinarySize()*len(ctORSBT_SigmaDecompTmp)*len(ctORSBT_SigmaDecompTmp[0])/(1024*1024))
 				copy(ctORSBT_SigmaDecomp[idx:idx+len(ctORSBT_SigmaDecompTmp)], ctORSBT_SigmaDecompTmp)
-				fmt.Printf("SigmaLinTrans complete in %s\n", time.Since(nowtmp))
 				for i := 0; i < idx; i++ {
 					ctORSBT_SigmaDecomp[i] = nil
 				}
-				nowtmp = time.Now()
 				debug.FreeOSMemory()
-				elapsed -= time.Since(nowtmp)
 			}
 			wg.Add(1)
 			subrouteNum_outer--

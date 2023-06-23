@@ -521,12 +521,12 @@ func OnlyMatrixMult_check() {
 	auxio.Print_matrix_f64_2d(checkA, d, d)
 }
 
-func PCA_check(loadkeysFromDisk bool) {
+func PCA_check(Debug bool, loadkeysFromDisk bool) {
 	var err error
-	matrixCols := 128
+	matrixCols := 112
 	matrixRows := 128
-	rows := 60000
-	cols := 257
+	rows := 256
+	cols := 785
 
 	// BSGSRatio:
 	/*
@@ -535,7 +535,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		BSGSRatio4Tau := 2
 	*/
 	// Maximum Routines:
-	maxSubRoutes := 7
+	maxSubRoutes := 2
 
 	// N1
 	DSigma_BSGSN1 := 16
@@ -545,10 +545,6 @@ func PCA_check(loadkeysFromDisk bool) {
 	// runtime.GOMAXPROCS(6)
 	d := 1 << 7
 
-	// MaxDiagVec
-	SigmaMaxDiagVec := d / 4
-	TauMaxDiagVec := (d / 4) * d
-
 	// necessary file paths:
 	var KeysPath = "Keys"
 	var Rtk4Transpose_path = "Rtk4Transpose"
@@ -556,7 +552,7 @@ func PCA_check(loadkeysFromDisk bool) {
 	var Rtk4RowtotalSum_path = "Rtk4RowtotalSum"
 	var ctCov_path = "ctCov"
 	var ctMean_path = "ctMean"
-	var csvfilepath = "mnist.csv"
+	var csvfilepath = "mnist_train_normalised.csv"
 
 	// initialize encryption scheme params.
 	var params ckks.Parameters
@@ -621,8 +617,6 @@ func PCA_check(loadkeysFromDisk bool) {
 		}
 	}
 
-	inputLevel := 9
-
 	// Encryptor
 	encryptor := ckks.NewEncryptor(params, pk)
 
@@ -646,14 +640,14 @@ func PCA_check(loadkeysFromDisk bool) {
 
 	// create the Map of Sigma LinearTransformation
 	fmt.Printf("create the Map of Sigma LinearTransformation\n")
-	DSigmaDiagonalMaps1, DSigmaDiagonalMaps2, err := mtrxmult.GenSigmaDiagnalDecomposeMatrices(d, SigmaMaxDiagVec)
+	DSigmaDiagonalMaps1, DSigmaDiagonalMaps2, err := mtrxmult.GenSigmaDiagnalDecomposeMatrices(d, d/2)
 	if err != nil {
 		panic(err)
 	}
 
 	// create the Map of Tau LinearTransformation
 	fmt.Printf("create the Map of Tau LinearTransformation\n")
-	DTauDiagonalMaps, err := mtrxmult.GenTauDiagonalDecomposeMatrices(d, TauMaxDiagVec)
+	DTauDiagonalMaps, err := mtrxmult.GenTauDiagonalDecomposeMatrices(d, d/2*d)
 	if err != nil {
 		panic(err)
 	}
@@ -810,7 +804,6 @@ func PCA_check(loadkeysFromDisk bool) {
 	galk4Transpose = nil
 	galk4MtrxMult = nil
 	galk4RowtotalSum = nil
-	debug.FreeOSMemory()
 
 	// Construct cols-1/matrixCols x cols-1/matrixCols ciphertexts:
 	Cov := make([][]*rlwe.Ciphertext, (cols-1)/matrixCols)
@@ -839,13 +832,11 @@ func PCA_check(loadkeysFromDisk bool) {
 	// var ctSum *rlwe.Ciphertext
 	// ctSum := encryptor.EncryptNew(auxio.Encode_single_float64(params, float64(0), params.MaxLevel(), rlwe.NewScale(1)))
 	// ctSum := encryptor.EncryptZeroNew(params.MaxLevel())                                   // ciphertext for inner product of two Rows of Subblock
-	ctORSBT := make([]*rlwe.Ciphertext, int(math.Ceil(float64(rows)/float64(matrixRows))))                  // ciphetexts for One Row of Subblock Transposed
-	ctORSB := make([]*rlwe.Ciphertext, int(math.Ceil(float64(rows)/float64(matrixRows))))                   // ciphetexts for One Row of Subblock.
-	var ctORSBT_SigmaDecomp = make([][]*rlwe.Ciphertext, int(math.Ceil(float64(rows)/float64(matrixRows)))) // Sigma Decomposed ciphetexts for One Row of Subblock Transposed.
+	ctORSBT := make([]*rlwe.Ciphertext, int(math.Ceil(float64(rows)/float64(matrixRows)))) // ciphetexts for One Row of Subblock Transposed
+	ctORSB := make([]*rlwe.Ciphertext, int(math.Ceil(float64(rows)/float64(matrixRows))))  // ciphetexts for One Row of Subblock.
 	// ctSubRbuff := make([]*rlwe.Ciphertext, maxSubRoutes)                                   // subroutine buffer.
-	// ctOCSB := make([]*rlwe.Ciphertext, int(math.Ceil(float64(cols)/float64(matrixCols))))
-	var ctOCSBSum []*rlwe.Ciphertext
-	// ctOCSBSum := make([]*rlwe.Ciphertext, int(math.Ceil(float64(cols)/float64(matrixCols))))
+	ctOCSB := make([]*rlwe.Ciphertext, int(math.Ceil(float64(cols)/float64(matrixCols))))
+	ctOCSBSum := make([]*rlwe.Ciphertext, int(math.Ceil(float64(cols)/float64(matrixCols))))
 	IdentityVec := make([]float64, 1<<params.LogSlots())
 	for i := 0; i < len(IdentityVec); i++ {
 		IdentityVec[i] = 0.5
@@ -864,19 +855,18 @@ func PCA_check(loadkeysFromDisk bool) {
 	var wg sync.WaitGroup
 	for k := 1; k < cols; k += matrixCols {
 		// Load the Rotation keys for Transposition
+		fmt.Printf("Retrieve the Rotation keys for Transposition\n")
 		RtkTracker4Transpose = auxio.NewTracker4File(Rtk4Transpose_path)
 		galk4Transpose = new(rlwe.RotationKeySet)
 		_, err = RtkTracker4Transpose.ReadUpdateOne(galk4Transpose)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Retrieve the Rotation keys with %d MB for Transposition\n", galk4Transpose.MarshalBinarySize()/(1024*1024))
-
 		// Generate evaluation key for transposition and other operation:
 		elk := rlwe.EvaluationKey{Rlk: rlk, Rtks: galk4Transpose}
 		// Extract the Transposition of OneRowOfSubblock.
 		now = time.Now()
-		fmt.Printf("Extract the Transposition of %d th OneRowOfSubblock, and by the way compute their Sigma transformation result in all column shift\n", (k-1)/matrixCols)
+		fmt.Printf("Extract the Transposition of %d th OneRowOfSubblock.\n", (k-1)/matrixCols)
 		subrouteNum := maxSubRoutes
 		for j := 1; j < rows+1; j += matrixRows {
 			// extract a matrixRows x matrixCols matrix
@@ -904,7 +894,7 @@ func PCA_check(loadkeysFromDisk bool) {
 					panic(err)
 				}
 				MatrixSB, err = mtrxmult.Row_orderingInvZeroPad(sbf64, d)
-				ptMtrxSB = encoder_subroute.EncodeNew(MatrixSB, inputLevel, params.DefaultScale(), params.LogSlots())
+				ptMtrxSB = encoder_subroute.EncodeNew(MatrixSB, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
 				ctMtrxSB = encryptor_subroute.EncryptNew(ptMtrxSB)
 				// auxio.Quick_decode_matrix_full(params, ptMtrxSB, d, d)
 				ctORSB[j/matrixRows] = ctMtrxSB                                                                       // dbg testing
@@ -916,7 +906,7 @@ func PCA_check(loadkeysFromDisk bool) {
 				if err != nil {
 					panic(err)
 				}
-				// copy(ORSB1[j/matrixRows], sbf64)
+				copy(ORSB1[j/matrixRows], sbf64)
 				fmt.Printf("the %d th routine done in %s \n", j, time.Since(now))
 				fmt.Printf("ctORSBT at level %d, Scale %f\n", ctORSBT[j/matrixRows].Level(), math.Log2(ctORSBT[j/matrixRows].Scale.Float64()))
 				// auxio.Quick_check_matrix_full(params, sk, ctORSBT[j/matrixRows], d, d)
@@ -932,6 +922,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		elapsed += time.Since(now)
 		// Free the Rotation keys for Transposition
 		galk4Transpose = nil
+		debug.FreeOSMemory()
 
 		// We then compute the Sum of One Row of Subblocks to prepare for the Aggregation of Mean vector computation
 		now = time.Now()
@@ -943,7 +934,6 @@ func PCA_check(loadkeysFromDisk bool) {
 		}
 		fmt.Printf("Sum of Subblocks complete in %s\n", time.Since(now))
 		elapsed += time.Since(now)
-		debug.FreeOSMemory()
 
 		// Retrieve the Rotation keys for MatrixMult
 		RtkTracker4MtrxMult = auxio.NewTracker4File(Rtk4MtrxMult_path)
@@ -952,128 +942,71 @@ func PCA_check(loadkeysFromDisk bool) {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("Retrieve the Rotation keys with %d MB for MatrixMult", galk4MtrxMult.MarshalBinarySize()/(1024*1024))
-
-		// Compute the Sigma Decomposition of the ciphertexts in ctORSBT:
-		//now = time.Now()
-		//fmt.Printf("Compute the Sigma Decomposition of the ciphertexts in ctORSBT\n")
-		// ctORSBT_SigmaDecomp, err = mtrxmult.Sigma_linearTransform_MultiThread_dbg(params, sk, rlk, galk4MtrxMult, ctORSBT, DSigmaLTs1, DSigmaLTs2, ColShiftLTs, d, len(ctORSBT))
-		//fmt.Printf("Sigma Decomposition of the ciphertexts in ctORSBT Done in %s\n", time.Since(now))
-		//elapsed += time.Since(now)
-
-		/* dbg testing
-		for i := 0; i < len(ctORSBT); i++ {
-			auxio.Quick_check_matrix(params, sk, ctORSBT[i], d, d)
-		}
-		*/
 
 		// Start Computing Matrix Mult for each element in ctORSBT, each of them will be multiplied by elements in ctOCSB in paralle.
 		now = time.Now()
 		fmt.Printf("Start Computing Matrix Mult for each element in ctORSBT, each of them will be multiplied by elements in ctOCSB in paralle.\n")
+		ctOCSB = make([]*rlwe.Ciphertext, (k-1)/matrixCols+1)
 		ctOCSBSum = make([]*rlwe.Ciphertext, (k-1)/matrixCols+1)
-
-		subrouteNum_outer := maxSubRoutes / ((k-1)/matrixCols + 1)
-		cond := sync.NewCond(&sync.Mutex{})
 		j := 1
-		for idx := range ctORSBT_SigmaDecomp {
-			if ctORSBT_SigmaDecomp[idx] == nil {
-				wg.Wait()
-				nowtmp := time.Now()
-				var ctORSBT_SigmaDecompTmp [][]*rlwe.Ciphertext
-				if idx+maxSubRoutes > len(ctORSBT) {
-					fmt.Printf("Computing SigmaLinTrans for ctORSBT[%d:%d]\n", idx, len(ctORSBT))
-					ctORSBT_SigmaDecompTmp, err = mtrxmult.Sigma_linearTransform_MultiThread_dbg(params, sk, rlk, galk4MtrxMult, ctORSBT[idx:], DSigmaLTs1, DSigmaLTs2, ColShiftLTs, d, maxSubRoutes)
-				} else {
-					fmt.Printf("Computing SigmaLinTrans for ctORSBT[%d:%d]\n", idx, idx+maxSubRoutes)
-					ctORSBT_SigmaDecompTmp, err = mtrxmult.Sigma_linearTransform_MultiThread_dbg(params, sk, rlk, galk4MtrxMult, ctORSBT[idx:idx+maxSubRoutes], DSigmaLTs1, DSigmaLTs2, ColShiftLTs, d, maxSubRoutes)
+		for idx, ct := range ctORSBT {
+			// Retrieve OCSB of one row
+			subrouteNum = maxSubRoutes
+			for i := 1; i <= k; i += matrixCols {
+				fmt.Printf("Retrieve dataset[%d][%d], and load it into ctOCSB\n", idx, (i-1)/matrixCols)
+				wg.Add(1)
+				subrouteNum--
+				go func(d int, i int, sbrNum int) {
+					defer wg.Done()
+					var sb [][]string
+					var sbf64 [][]float64
+					var MatrixSB []float64
+					var ptMtrxSB *rlwe.Plaintext
+					encryptor_subroute := ckks.NewEncryptor(params, pk)
+					encoder_subroute := ckks.NewEncoder(params)
+					// evaluator_subroute := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
+					if j+matrixRows > rows+1 {
+						sb, err = auxio.GetOneCSVSubblock(csvfilepath, j, i, rows-j+1, matrixCols)
+					} else {
+						sb, err = auxio.GetOneCSVSubblock(csvfilepath, j, i, matrixRows, matrixCols)
+					}
+					sbf64, err = auxio.Switch2d_str2f64(sb)
+					if err != nil {
+						panic(err)
+					}
+					MatrixSB, err = mtrxmult.Row_orderingInvZeroPad(sbf64, d)
+					ptMtrxSB = encoder_subroute.EncodeNew(MatrixSB, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+					ctOCSB[(i-1)/matrixCols] = encryptor_subroute.EncryptNew(ptMtrxSB)
+				}(d, i, subrouteNum)
+				if subrouteNum <= 0 {
+					wg.Wait()
+					subrouteNum = maxSubRoutes
 				}
-				if err != nil {
-					panic(err)
-				}
-				fmt.Printf("ctORSBT_SigmaDecompTmp occupying %d MB\n", ctORSBT_SigmaDecompTmp[0][0].MarshalBinarySize()*len(ctORSBT_SigmaDecompTmp)*len(ctORSBT_SigmaDecompTmp[0])/(1024*1024))
-				copy(ctORSBT_SigmaDecomp[idx:idx+len(ctORSBT_SigmaDecompTmp)], ctORSBT_SigmaDecompTmp)
-				fmt.Printf("SigmaLinTrans complete in %s\n", time.Since(nowtmp))
-				for i := 0; i < idx; i++ {
-					ctORSBT_SigmaDecomp[i] = nil
-				}
-				nowtmp = time.Now()
-				debug.FreeOSMemory()
-				elapsed -= time.Since(nowtmp)
 			}
-			wg.Add(1)
-			subrouteNum_outer--
-			go func(idx int, j int) {
-				defer wg.Done()
-				ctOCSB := make([]*rlwe.Ciphertext, (k-1)/matrixCols+1)
-				var wg_subroutine sync.WaitGroup
-				// Retrieve OCSB of one row
-				subrouteNum_inner := ((k-1)/matrixCols + 1)
-				for i := 1; i <= k; i += matrixCols {
-					fmt.Printf("Retrieve dataset[%d][%d], and load it into ctOCSB\n", idx, (i-1)/matrixCols)
-					wg_subroutine.Add(1)
-					subrouteNum_inner--
-					go func(d int, i int, j int) {
-						defer wg_subroutine.Done()
-						var sb [][]string
-						var sbf64 [][]float64
-						var MatrixSB []float64
-						var ptMtrxSB *rlwe.Plaintext
-						encryptor_subroute := ckks.NewEncryptor(params, pk)
-						encoder_subroute := ckks.NewEncoder(params)
-						// evaluator_subroute := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
-						if j+matrixRows > rows+1 {
-							sb, err = auxio.GetOneCSVSubblock(csvfilepath, j, i, rows-j+1, matrixCols)
-						} else {
-							sb, err = auxio.GetOneCSVSubblock(csvfilepath, j, i, matrixRows, matrixCols)
-						}
-						sbf64, err = auxio.Switch2d_str2f64(sb)
-						if err != nil {
-							panic(err)
-						}
-						MatrixSB, err = mtrxmult.Row_orderingInvZeroPad(sbf64, d)
-						ptMtrxSB = encoder_subroute.EncodeNew(MatrixSB, inputLevel, params.DefaultScale(), params.LogSlots())
-						ctOCSB[(i-1)/matrixCols] = encryptor_subroute.EncryptNew(ptMtrxSB)
-					}(d, i, j)
-					if subrouteNum_inner <= 0 {
-						wg_subroutine.Wait()
-						subrouteNum_inner = ((k-1)/matrixCols + 1)
-					}
+			wg.Wait()
+			// Compute MtrxMult between element in ctORSBT and elements in ctOCSB:
+			fmt.Printf("Compute MtrxMult between ctORSBT[%d] and elements in ctOCSB, and add them to the previous result in ctOCSBSum:\n", idx)
+			ctOCSBTemp, err := mtrxmult.SquareMatrix_MultBSGS_DecomposeVer2_NeedLTs_dbg(params, sk, rlk, galk4MtrxMult, ct, ctOCSB, DSigmaLTs1, DSigmaLTs2, DTauLTs, ColShiftLTs, d, len(ctOCSB))
+			if err != nil {
+				panic(err)
+			}
+			if idx == 0 {
+				for i := range ctOCSBTemp {
+					ctOCSBSum[i] = ctOCSBTemp[i].CopyNew()
+					//fmt.Printf("First ctOCSBSum[%d] value:\n", i)
+					//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
 				}
-				wg_subroutine.Wait()
-				// Compute MtrxMult between element in ctORSBT and elements in ctOCSB:
-				fmt.Printf("Compute MtrxMult between ctORSBT[%d] and elements in %d-th ctOCSB, and add them to the previous result in ctOCSBSum:\n", idx, idx)
-				ctOCSBTemp, err := mtrxmult.SquareMatrix_MultBSGS_DecomposeVer3_NeedLTs_dbg(params, sk, rlk, galk4MtrxMult, ctORSBT_SigmaDecomp[idx], ctOCSB, DTauLTs, d, len(ctOCSB))
-				// ctOCSBTemp, err := mtrxmult.SquareMatrix_MultBSGS_DecomposeVer2_NeedLTs_dbg(params, sk, rlk, galk4MtrxMult, ct, ctOCSB, DSigmaLTs1, DSigmaLTs2, DTauLTs, ColShiftLTs, d, len(ctOCSB))
-				if err != nil {
-					panic(err)
+			} else {
+				for i := range ctOCSBTemp {
+					//fmt.Printf("New value that will be added to ctOCSBSum[%d]:\n", i)
+					//auxio.Quick_check_matrix(params, sk, ctOCSBTemp[i], d, d)
+					evaluator.Add(ctOCSBTemp[i], ctOCSBSum[i], ctOCSBSum[i])
+					//fmt.Printf("After adding a new one, ctOCSBSum[%d] value:\n", i)
+					//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
 				}
-				cond.L.Lock()
-				if ctOCSBSum[0] == nil {
-					fmt.Printf("Let ctOCSBTemp[%d] as the first value of ctOCBSum\n", idx)
-					for i := range ctOCSBTemp {
-						ctOCSBSum[i] = ctOCSBTemp[i].CopyNew()
-						//fmt.Printf("First ctOCSBSum[%d] value:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
-					}
-				} else {
-					fmt.Printf("Adding ctOCSBTemp[%d] into ctOCBSum\n", idx)
-					for i := range ctOCSBTemp {
-						//fmt.Printf("New value that will be added to ctOCSBSum[%d]:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBTemp[i], d, d)
-						evaluator.Add(ctOCSBTemp[i], ctOCSBSum[i], ctOCSBSum[i])
-						//fmt.Printf("After adding a new one, ctOCSBSum[%d] value:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
-					}
-				}
-				cond.L.Unlock()
-			}(idx, j)
-			if subrouteNum_outer <= 0 {
-				wg.Wait()
-				subrouteNum_outer = maxSubRoutes / ((k-1)/matrixCols + 1)
 			}
 			j += matrixRows
 		}
-		wg.Wait()
 		fmt.Printf("Scale the result in ctOCSBSum, and load them into ctCov:\n")
 		for i := range ctOCSBSum {
 			err = evaluator.Rescale(ctOCSBSum[i], params.DefaultScale(), ctOCSBSum[i])
@@ -1090,7 +1023,7 @@ func PCA_check(loadkeysFromDisk bool) {
 			}
 			fmt.Printf("ctCov[%d][%d] now has scale %f, level %d\n", (k-1)/matrixCols, i, math.Log2(ctOCSBSum[i].Scale.Float64()), ctOCSBSum[i].Level())
 			ctCov[(k-1)/matrixCols][i] = ctOCSBSum[i].CopyNew()
-			auxio.Quick_check_matrix(params, sk, ctCov[(k-1)/matrixCols][i], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctCov[(k-1)/matrixCols][i], d, d)
 		}
 
 		galk4MtrxMult = nil
@@ -1121,11 +1054,8 @@ func PCA_check(loadkeysFromDisk bool) {
 		// We want to store the ctMean into disk, to reduce the memory occupation...
 		// Store the mean:
 		Meantracker.StoreUpdateOne(ctMean[(k-1)/matrixCols])
-		ctMean[(k-1)/matrixCols] = nil                  // release the memory.
-		galk4RowtotalSum = nil                          // free the Rotation key for RowtotalSum
-		for i := 0; i < len(ctORSBT_SigmaDecomp); i++ { // free the decomposition space
-			ctORSBT_SigmaDecomp[i] = nil
-		}
+		ctMean[(k-1)/matrixCols] = nil // release the memory.
+		galk4RowtotalSum = nil         // free the Rotation key for RowtotalSum
 		debug.FreeOSMemory()
 
 	}
@@ -1372,7 +1302,7 @@ func CovMatrix_check() {
 			fmt.Printf("The i:%d, j:%d ctCov: with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
 			//auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
 			// do one recryption,this is for the following PowerMethod.
-			// ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+			ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
 			auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
 		}
 	}
@@ -1513,11 +1443,11 @@ func CovMatrix_check() {
 						panic(err)
 					}
 					fmt.Printf("The %dth ctSum Aggregated with scale %f level %d: \n", i, math.Log2(ctSum.Scale.Float64()), ctSum.Level())
-					auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					auxio.Quick_check_matrix_full(params, sk, ctSum, d, d)
 
 					ctVip1[i] = ctSum.CopyNew()
 					fmt.Printf("The %dth Vip1 with scale %f level %d: \n", i, math.Log2(ctVip1[i].Scale.Float64()), ctVip1[i].Level())
-					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
+					auxio.Quick_check_matrix_full(params, sk, ctVip1[i], d, d)
 					ctSum = nil
 					// ctSum = encryptor.EncryptZeroNew(params.MaxLevel())
 				}
@@ -1555,7 +1485,7 @@ func CovMatrix_check() {
 
 				// Taylor Init Guess:
 
-				ctGuess, err := nonpolyfunc.TaylorInitNew(params, rlk, ctSum, nonpolyfunc.Inv_sqrt_taylor2_0to2pow10[:]) // Consume one level *2
+				ctGuess, err := nonpolyfunc.TaylorInitNew(params, rlk, ctSum, nonpolyfunc.Inv_sqrt_taylor1_0to2pow21[:]) // Consume one level *2
 				if err != nil {
 					panic(err)
 				}
@@ -1609,9 +1539,9 @@ func CovMatrix_check() {
 					for i := 0; i < len(ctVip1); i++ {
 						ctViT[i], err = mtrxmult.ReplicateVec_Switch_Axis(params, sk, galk4RowtotalSum, ctVi[i], d, (VecMod+1)&(2-1)) // Consume one level
 						fmt.Printf("The ctViT with Scale %f, level %d:\n", math.Log2(ctViT[i].Scale.Float64()), ctViT[i].Level())
-						auxio.Quick_check_matrix(params, sk, ctViT[i], d, d)
+						auxio.Quick_check_matrix_full(params, sk, ctViT[i], d, d)
 						fmt.Printf("The ctVi  with Scale %f, level %d:\n", math.Log2(ctVi[i].Scale.Float64()), ctVi[i].Level())
-						auxio.Quick_check_matrix(params, sk, ctVi[i], d, d)
+						auxio.Quick_check_matrix_full(params, sk, ctVi[i], d, d)
 						if err != nil {
 							panic(err)
 						}
@@ -1667,7 +1597,7 @@ func CovMatrix_check() {
 					// auxio.Quick_check_matrix_full(params, sk, ctEigVec[k][i], d, d)
 					ctTemp = ctViT[i]
 					fmt.Printf("The ctEigVec^T[%d][%d] is with scale %f, level %d: \n", k, i, math.Log2(ctTemp.Scale.Float64()), ctTemp.Level())
-					auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+					auxio.Quick_check_matrix_full(params, sk, ctTemp, d, d)
 					if err != nil {
 						panic(err)
 					}

@@ -1,9 +1,5 @@
 package check
 
-/*
- * Check for funcs from matrix_mult, and more advanced routines like compute Covariant Matrix (for PCA)
- */
-
 import (
 	"fmt"
 	"math"
@@ -11,517 +7,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tuneinsight/lattigo/v4/ckks"
+	"github.com/tuneinsight/lattigo/v4/ckks/bootstrapping"
+	"github.com/tuneinsight/lattigo/v4/rlwe"
+	"github.com/tuneinsight/lattigo/v4/utils"
 	auxio "project1-fhe_extension_v1.0/auxiliary_io"
 	mtrxmult "project1-fhe_extension_v1.0/matrix_mult"
 	nonpolyfunc "project1-fhe_extension_v1.0/nonpoly_func"
-
-	"github.com/tuneinsight/lattigo/v4/ckks"
-	"github.com/tuneinsight/lattigo/v4/rlwe"
 )
 
-func SquareMatrix_product_check() {
-	d := 5
-	MatrixA := make([][]float64, d)
-	for i := 0; i < d; i++ {
-		MatrixA[i] = make([]float64, d)
-		for j := 0; j < d; j++ {
-			MatrixA[i][j] = float64(i*d + j)
-		}
-	}
-
-	MatrixB := MatrixA
-	auxio.Print_matrix_f64_full_2d(MatrixA, d, d)
-	MatrixC, err := mtrxmult.SquareMatrix_product_permute_version(MatrixA, MatrixB)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Print_matrix_f64_full_2d(MatrixC, d, d)
-	// ------------------------------------------------------ testing
-	var M map[int][]float64
-	M, err = mtrxmult.Gen_trans_C_tao_diagonalVectors(d)
-	if err != nil {
-		panic(err)
-	}
-	print(M)
-
-}
-
-func SquareMatrix_encode_check() {
-	d := 3
-	g := 2
-	Multi_MatrixA := make([][][]float64, g)
-	for k := 0; k < g; k++ {
-		Multi_MatrixA[k] = make([][]float64, d)
-		for i := 0; i < d; i++ {
-			Multi_MatrixA[k][i] = make([]float64, d)
-			for j := 0; j < d; j++ {
-				Multi_MatrixA[k][i][j] = float64(i*d + j)
-			}
-		}
-	}
-	a, err := mtrxmult.Row_orderingInv(Multi_MatrixA[0])
-	if err != nil {
-		panic(err)
-	}
-	auxio.Print_vector_f64_full(a)
-	a, err = mtrxmult.Row_orderingInv_multiple(Multi_MatrixA)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Print_vector_f64_full(a)
-}
-
-func SquareMatrix_permute_check() {
-	var err error
-	var now time.Time
-	// create a 4x4 matrix matrixA
-	d := 128
-	Sigma_BSGSRatio := 8
-	DSigma_BSGSRatio := 1
-	Tau_BSGSRatio := 8
-	DTau_BSGSRatio := 1
-	MatrixA := make([][]float64, d)
-	for i := 0; i < d; i++ {
-		MatrixA[i] = make([]float64, d)
-		for j := 0; j < d; j++ {
-			MatrixA[i][j] = float64(i*d + j)
-		}
-	}
-	auxio.Print_matrix_f64_2d(MatrixA, d, d)
-	// encode matrixA into a vector using row ordering
-	var a []float64
-	a, err = mtrxmult.Row_orderingInv(MatrixA)
-	if err != nil {
-		panic(err)
-	}
-
-	// create the Map of Sigma LinearTransformation
-	var SigmaDiagonalMap map[int][]float64
-	SigmaDiagonalMap, err = mtrxmult.Gen_sigma_diagonalVecotrs(d)
-	if err != nil {
-		panic(err)
-	}
-	// create the Map of Tau LinearTransformation
-
-	var TauDiagonalMap map[int][]float64
-	TauDiagonalMap, err = mtrxmult.Gen_tao_diagonalVectors(d)
-	if err != nil {
-		panic(err)
-	}
-
-	// create the Decomposed Maps of Sigma LinearTransformation
-	SigmaMatrix := mtrxmult.DiagonalVectors2Matrix(SigmaDiagonalMap, d*d)
-	DSigmaDiagonalMaps, err := mtrxmult.Converge2DiagonalDecompose_Sigma(SigmaMatrix)
-	if err != nil {
-		panic(err)
-	}
-	// create the Decomposed Maps of Tau LinearTransformation
-
-	TauMatrix := mtrxmult.DiagonalVectors2Matrix(TauDiagonalMap, d*d)
-	DTauDiagonalMaps, err := mtrxmult.Converge2DiagonalDecompose_Tao(TauMatrix)
-	if err != nil {
-		panic(err)
-	}
-
-	// initialize encryption scheme.
-	LogN := 15
-	Q := []uint64{
-		1152921504598720513,
-		1099490000897, 1099498258433, 1099499175937, 1099499569153, 1099500617729}
-
-	P := []uint64{1152921504606584833}
-	var params ckks.Parameters
-	if params, err = ckks.NewParametersFromLiteral(ckks.ParametersLiteral{
-		LogN:         LogN,
-		Q:            Q,
-		P:            P,
-		LogSlots:     int(math.Log2(float64(d * d))), // we only need 16 slots to represent a 4x4 matrix in a ciphertext.
-		DefaultScale: 1 << 40,
-	}); err != nil {
-		panic(err)
-	}
-	// generate Keys:
-	kgen := ckks.NewKeyGenerator(params)
-	sk, pk := kgen.GenKeyPair()
-	// Relinearization key
-	rlk := kgen.GenRelinearizationKey(sk, 1)
-	// Galois keys
-	// Since we are testing Sigma, Tao, RowShift and ColShift permutation,
-	// rotation steps {-d+1 ~ d-1} and  {1d,2d,...(d-1)d} are needed.
-	steps := make([]int, d+d-1+d-1)
-	j := 0
-	for i := 0; i < d; i++ {
-		steps[j] = i
-		j++
-		if i != 0 {
-			steps[j] = -i + d*d // -i is original but we will have to set -i mod d^2 here.
-			j++
-		}
-	}
-	for i := d; i < d*d; i += d {
-		steps[j] = i
-		j++
-	}
-	galk := kgen.GenRotationKeysForRotations(steps[:], false, sk)
-
-	// Encryptor
-	encryptor := ckks.NewEncryptor(params, pk)
-
-	// encoder
-	encoder := ckks.NewEncoder(params)
-
-	// encryption
-	ptA := encoder.EncodeNew(a, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
-	ctA := encryptor.EncryptNew(ptA)
-
-	// Check Sigma permutation (with BSGS and Decomposed BSGS version)
-	fmt.Printf("Checking Sigma permutation (with BSGS)...\n")
-	var ctSigmaA, ctSigmaA_BSGS, ctSigmaA_DBSGS *rlwe.Ciphertext
-
-	now = time.Now()
-	ctSigmaA, err = mtrxmult.Sigma_linearTransform_dbg(params, rlk, galk, ctA, d) // NonBSGS version
-	fmt.Printf("NonBSGS version Done in (%s) \n", time.Since(now))
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctSigmaA, d, d)
-
-	now = time.Now()
-	ctSigmaA_BSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctA, SigmaDiagonalMap, float64(Sigma_BSGSRatio)) //BSGS version
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("BSGS version with Ratio %d Done in (%s) \n", Sigma_BSGSRatio, time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctSigmaA_BSGS, d, d)
-
-	now = time.Now()
-	ctSigmaA_DBSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctA, DSigmaDiagonalMaps[0], float64(DSigma_BSGSRatio))
-	ctSigmaA_DBSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctSigmaA_DBSGS, DSigmaDiagonalMaps[1], float64(DSigma_BSGSRatio))
-	fmt.Printf("Decomposed BSGS version with Ratio %d Done in (%s) \n ", Sigma_BSGSRatio, time.Since(now))
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctSigmaA_DBSGS, d, d)
-
-	fmt.Printf("Compare with exact Sigma Permutation:\n")
-	checkA := mtrxmult.Sigma_permute(MatrixA, d)
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-
-	// Check Tao permutation
-	fmt.Printf("Checking Tao permutation (with BSGS) ...\n")
-	var ctTaoA, ctTaoA_BSGS, ctTauA_DBSGS *rlwe.Ciphertext
-
-	now = time.Now()
-	ctTaoA, err = mtrxmult.Tao_linearTransform(params, rlk, galk, ctA, d) // nonBSGS version
-	fmt.Printf("NonBSGS version Done in (%s) \n", time.Since(now))
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctTaoA, d, d)
-
-	now = time.Now()
-	ctTaoA_BSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctA, TauDiagonalMap, float64(Tau_BSGSRatio)) // BSGS version
-	fmt.Printf("BSGS version with Ration %d Done in (%s) \n", Tau_BSGSRatio, time.Since(now))
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctTaoA_BSGS, d, d)
-
-	now = time.Now()
-	ctTauA_DBSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctA, DTauDiagonalMaps[0], float64(DTau_BSGSRatio))
-	ctTauA_DBSGS, err = mtrxmult.General_linearTransform_dbg(params, rlk, galk, ctTauA_DBSGS, DTauDiagonalMaps[1], float64(DTau_BSGSRatio))
-	fmt.Printf("Decomposed BSGS version with Ratio %d Done in (%s) \n", Tau_BSGSRatio, time.Since(now))
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctTauA_DBSGS, d, d)
-
-	fmt.Printf("Compare with exact Tao Permutation:\n")
-	checkA = mtrxmult.Tao_permute(MatrixA, d)
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-
-	// Check ColShift permutation
-	fmt.Printf("Checking ColShift permutation ...\n")
-	k := 0
-	var ctColShiftA *rlwe.Ciphertext
-	ctColShiftA, err = mtrxmult.ColShift_linearTransform(params, rlk, galk, ctA, d, k)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctColShiftA, d, d)
-	checkA = mtrxmult.Phi_permute(MatrixA, d)
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-
-	// Check RowShift permutation
-	fmt.Printf("Checking RowShift permutation ...\n")
-	var ctRowShiftA *rlwe.Ciphertext
-	ctRowShiftA, err = mtrxmult.RowShift_linearTransform(params, rlk, galk, ctA, d, k)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctRowShiftA, d, d)
-	checkA = mtrxmult.Psi_permute(MatrixA, d)
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-
-	// Check Square Matrix Multiplication:
-	fmt.Printf("Checking Square Matrix Multiplication (with BSGS)...\n")
-	var ctMatrixMult, ctMatrixMult_BSGS, ctMatrixMult_DBSGS *rlwe.Ciphertext
-	ctB := ctA
-	now = time.Now()
-	ctMatrixMult, err = mtrxmult.SquareMatrix_Mult(params, rlk, galk, ctA, ctB, d) // nonBSGS version
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("nonBSGS version SquareMatrix Mult done in (%s)\n", time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctMatrixMult, d, d)
-
-	now = time.Now()
-	ctMatrixMult_BSGS, err = mtrxmult.SquareMatrix_MultBSGS_dbg(params, sk, rlk, galk, ctA, ctB, d, float64(Sigma_BSGSRatio), float64(Tau_BSGSRatio)) // BSGS version
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("BSGS version with SigmaBSGSRatio %d , TaoBSGSRatio %d done in (%s)\n", Sigma_BSGSRatio, Tau_BSGSRatio, time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctMatrixMult_BSGS, d, d)
-
-	now = time.Now()
-	ctMatrixMult_DBSGS, err = mtrxmult.SquareMatrix_MultBSGS_DecomposeVer_dbg(params, sk, rlk, galk, ctA, ctB, DSigmaDiagonalMaps, DTauDiagonalMaps, float64(Sigma_BSGSRatio), float64(Tau_BSGSRatio))
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Decomposed BSGS version with SigmaBSGSRatio %d, TauBSGSRatio %d done in (%s)\n", Sigma_BSGSRatio, Tau_BSGSRatio, time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctMatrixMult_DBSGS, d, d)
-
-	fmt.Printf("Compare with exact result of SquareMatrix Mult:\n")
-	checkA, err = mtrxmult.SquareMatrix_product_permute_version(MatrixA, MatrixA)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-
-	// Check Matrix masking:
-	// Regard Plaintext Slots as a 4x4 square matrix
-	// set a rectangle matrix C with size (m=3) x (l=2) as a submatrix of Plaintext square matrix.
-	f := 1
-	m := 3
-	l := 2
-	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
-	MatrixC := make([][]float64, d)
-	for i := 0; i < d; i++ {
-		MatrixC[i] = make([]float64, d)
-	}
-	for i := 0; i < m; i++ {
-		for j := 0; j < l; j++ {
-			MatrixC[i][j] = float64(f)
-			f++
-		}
-	}
-	var C []float64
-	C, err = mtrxmult.Col_orderingInv(MatrixC)
-	if err != nil {
-		panic(err)
-	}
-	ptC := encoder.EncodeNew(C, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
-	ctC := encryptor.EncryptNew(ptC)
-	auxio.Quick_check_matrix(params, sk, ctC, d, d)
-	var ctMaskedC *rlwe.Ciphertext
-	ctMaskedC, err = mtrxmult.Matrix_masking_withColOrder(params, rlk, ctC, d, d, l, 1)
-	if err != nil {
-		panic(err)
-	}
-	evaluator.Rescale(ctMaskedC, params.DefaultScale(), ctMaskedC)
-	auxio.Quick_check_matrix(params, sk, ctMaskedC, d, d)
-
-	// Check Matrix Replication:
-	// For simplicity, We generate all the possible Rotation keys for this operation.
-	steps_forReplicate := make([]int, 2*d*d)
-	for i := 0; i < d*d; i++ {
-		steps_forReplicate[i] = i
-		steps_forReplicate[i+d*d] = -i
-	}
-	galk_forReplicate := kgen.GenRotationKeysForRotations(steps_forReplicate, false, sk)
-	// Use ctMaskedC to display the effect.
-	// Row Replication:
-	var ctReplicatedMaskedC *rlwe.Ciphertext
-	ctReplicatedMaskedC, err = mtrxmult.Matrix_rowTotalSum_withColOrder(params, galk_forReplicate, ctMaskedC, d, d)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctReplicatedMaskedC, d, d)
-
-	// MultiRow Replication:
-	// set another rectangle matrix D with size (l=2) x (n=4) as a submatrix of Plaintext square matrix.
-	f = 1
-	n := 4
-	MatrixD := make([][]float64, d)
-	for i := 0; i < d; i++ {
-		MatrixD[i] = make([]float64, d)
-	}
-	for i := 0; i < l; i++ {
-		for j := 0; j < n; j++ {
-			MatrixD[i][j] = float64(f)
-			f++
-		}
-	}
-	var D []float64
-	D, err = mtrxmult.Col_orderingInv(MatrixD)
-	if err != nil {
-		panic(err)
-	}
-	ptD := encoder.EncodeNew(D, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
-	ctD := encryptor.EncryptNew(ptD)
-	auxio.Quick_check_matrix(params, sk, ctD, d, d)
-	var ctReplicatedD *rlwe.Ciphertext
-	ctReplicatedD, err = mtrxmult.Matrix_multirowReplicate_withColOrder_dbg(params, sk, galk_forReplicate, ctD, d, d, l)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctReplicatedD, d, d)
-
-	// Check Complete Row rotation in Col ordering scheme.
-	var ctRotatedD *rlwe.Ciphertext
-	for i := 0; i < d; i++ {
-		ctRotatedD, err = mtrxmult.Matrix_rowRotation_withColOrder_dbg(params, sk, galk_forReplicate, ctReplicatedD, d, d, i)
-		if err != nil {
-			panic(err)
-		}
-		auxio.Quick_check_matrix(params, sk, ctRotatedD, d, d)
-	}
-
-	// Check Rectangle Matrix Multiplication:
-	var ctCD *rlwe.Ciphertext
-	ctCD, err = mtrxmult.RectangleMatrix_Mult_withColOrder_dbg(params, sk, galk_forReplicate, rlk, ctC, ctD, d, d, m, l, n)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctCD, d, d)
-
-	// Check (Square) Matrix Transposition:
-	var ctTransA *rlwe.Ciphertext
-	ctTransA, err = mtrxmult.Transpose_linearTransform(params, rlk, galk_forReplicate, ctA, d)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctTransA, d, d)
-
-	// Check (Square) Matrix Transposition + Tao permutation:
-	var ctTransCtaoA *rlwe.Ciphertext
-	ctTransCtaoA, err = mtrxmult.TransposeCtao_linearTransform(params, rlk, galk_forReplicate, ctA, d)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctTransCtaoA, d, d)
-	// compare with the result of doing transpostion and tao permutation seperately:
-	var ctSeperateA *rlwe.Ciphertext
-	ctSeperateA, err = mtrxmult.Tao_linearTransform(params, rlk, galk_forReplicate, ctTransA, d)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Quick_check_matrix(params, sk, ctSeperateA, d, d)
-
-}
-
-func OnlyMatrixMult_check() {
-	var err error
-	var now time.Time
-	// create a 4x4 matrix matrixA
-	d := 4
-	SigmaBSGSRatio := 4
-	TaoBSGSRatio := 4
-	MatrixA := make([][]float64, d)
-	for i := 0; i < d; i++ {
-		MatrixA[i] = make([]float64, d)
-		for j := 0; j < d; j++ {
-			MatrixA[i][j] = float64(i*d + j)
-		}
-	}
-	auxio.Print_matrix_f64_2d(MatrixA, d, d)
-	// encode matrixA into a vector using row ordering
-	var a []float64
-	a, err = mtrxmult.Row_orderingInv(MatrixA)
-	if err != nil {
-		panic(err)
-	}
-	var checkA [][]float64
-	// initialize encryption scheme.
-	LogN := 15
-	Q := []uint64{
-		1152921504598720513,
-		1099490000897, 1099498258433, 1099499175937, 1099499569153, 1099500617729}
-
-	P := []uint64{1152921504606584833}
-	var params ckks.Parameters
-	if params, err = ckks.NewParametersFromLiteral(ckks.ParametersLiteral{
-		LogN:         LogN,
-		Q:            Q,
-		P:            P,
-		LogSlots:     int(math.Log2(float64(d * d))), // we only need 16 slots to represent a 4x4 matrix in a ciphertext.
-		DefaultScale: 1 << 40,
-	}); err != nil {
-		panic(err)
-	}
-	// generate Keys:
-	kgen := ckks.NewKeyGenerator(params)
-	sk, pk := kgen.GenKeyPair()
-	// Relinearization key
-	rlk := kgen.GenRelinearizationKey(sk, 1)
-	// Galois keys
-	// Since we are testing Sigma, Tao, RowShift and ColShift permutation,
-	// rotation steps {-d+1 ~ d-1} and  {1d,2d,...(d-1)d} are needed.
-	steps := make([]int, d+d-1+d-1)
-	j := 0
-	for i := 0; i < d; i++ {
-		steps[j] = i
-		j++
-		if i != 0 {
-			steps[j] = -i + d*d // -i is original but we will have to set -i mod d^2 here.
-			j++
-		}
-	}
-	for i := d; i < d*d; i += d {
-		steps[j] = i
-		j++
-	}
-	galk := kgen.GenRotationKeysForRotations(steps[:], false, sk)
-
-	// Encryptor
-	encryptor := ckks.NewEncryptor(params, pk)
-
-	// encoder
-	encoder := ckks.NewEncoder(params)
-
-	// encryption
-	ptA := encoder.EncodeNew(a, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
-	ctA := encryptor.EncryptNew(ptA)
-
-	// Check Square Matrix Multiplication:
-	fmt.Printf("Checking Square Matrix Multiplication (with BSGS)...\n")
-	var ctMatrixMult, ctMatrixMult_BSGS *rlwe.Ciphertext
-	ctB := ctA
-	now = time.Now()
-	ctMatrixMult, err = mtrxmult.SquareMatrix_Mult(params, rlk, galk, ctA, ctB, d) // nonBSGS version
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("nonBSGS version SquareMatrix Mult done in (%s)\n", time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctMatrixMult, d, d)
-
-	now = time.Now()
-	ctMatrixMult_BSGS, err = mtrxmult.SquareMatrix_MultBSGS_dbg(params, sk, rlk, galk, ctA, ctB, d, float64(SigmaBSGSRatio), float64(TaoBSGSRatio)) // BSGS version
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("BSGS version with SigmaBSGSRatio %d , TaoBSGSRatio %d done in (%s)\n", SigmaBSGSRatio, TaoBSGSRatio, time.Since(now))
-	auxio.Quick_check_matrix(params, sk, ctMatrixMult_BSGS, d, d)
-
-	fmt.Printf("Compare with exact result of SquareMatrix Mult:\n")
-	checkA, err = mtrxmult.SquareMatrix_product_permute_version(MatrixA, MatrixA)
-	if err != nil {
-		panic(err)
-	}
-	auxio.Print_matrix_f64_2d(checkA, d, d)
-}
-
-func PCA_check(loadkeysFromDisk bool) {
+func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 	var err error
 	matrixCols := 128
 	matrixRows := 128
@@ -535,7 +30,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		BSGSRatio4Tau := 2
 	*/
 	// Maximum Routines:
-	maxSubRoutes := 7
+	maxSubRoutes := 5
 
 	// N1
 	DSigma_BSGSN1 := 16
@@ -546,82 +41,79 @@ func PCA_check(loadkeysFromDisk bool) {
 	d := 1 << 7
 
 	// MaxDiagVec
-	SigmaMaxDiagVec := d / 4
-	TauMaxDiagVec := (d / 4) * d
+	SigmaMaxDiagVec := d / 2
+	TauMaxDiagVec := (d / 2) * d
 
 	// necessary file paths:
-	var KeysPath = "Keys"
-	var Rtk4Transpose_path = "Rtk4Transpose"
-	var Rtk4MtrxMult_path = "Rtk4MtrxMult"
-	var Rtk4RowtotalSum_path = "Rtk4RowtotalSum"
-	var ctCov_path = "ctCov"
-	var ctMean_path = "ctMean"
+	var KeysPath_btpVersion = "Keys_btpVer"
+	var Rtk4Transpose_path = "Rtk4Transpose_btpVer"
+	var Rtk4MtrxMult_path = "Rtk4MtrxMult_btpVer"
+	var Rtk4RowtotalSum_path = "Rtk4RowtotalSum_btpVer"
+	var ctCov_path = "ctCov_btpVer"
+	var ctMean_path = "ctMean_btpVer"
 	var csvfilepath = "mnist.csv"
 
 	// initialize encryption scheme params.
+
+	var ckksParams ckks.ParametersLiteral
+	var btpParams bootstrapping.Parameters
 	var params ckks.Parameters
+
 	var sk *rlwe.SecretKey
 	var pk *rlwe.PublicKey
 	var rlk *rlwe.RelinearizationKey
+	var btpevk bootstrapping.EvaluationKeys
 	var kgen rlwe.KeyGenerator
 
-	// generate Keys, we can load keys from disk or generate it.
+	// generate Keys, we can load keys from disk or generate them.
 	if loadkeysFromDisk {
-		params, sk, pk, rlk, err = LoadKeys_check()
+		// In this function, we do not need to perform boostrapping, so we only pick up the keys we need in this section.
+		params, btpParams, sk, pk, btpevk.Rlk, _, _, _, err = LoadKeys_btpVersion(KeysPath_btpVersion)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		params, err = ckks.NewParametersFromLiteral(PN15QP720S14)
+		paramSet := bootstrapping.N16QP1788H32768H32
+		ckksParams = paramSet.SchemeParams
+		btpParams = paramSet.BootstrappingParams
+		ckksParams.LogSlots = 14
+		params, err = ckks.NewParametersFromLiteral(ckksParams)
 		if err != nil {
 			panic(err)
 		}
+		fmt.Println()
+		fmt.Printf("CKKS parameters: logN = %d, logSlots = %d, H(%d; %d), logQP = %d, levels = %d, scale= 2^%f, sigma = %f \n", params.LogN(), params.LogSlots(), params.HammingWeight(), btpParams.EphemeralSecretWeight, params.LogQP(), params.QCount(), math.Log2(params.DefaultScale().Float64()), params.Sigma())
+
 		kgen = ckks.NewKeyGenerator(params)
 		sk, pk = kgen.GenKeyPair()
-		// Relinearization key
-		rlk = kgen.GenRelinearizationKey(sk, 1)
+		fmt.Println()
+
+		fmt.Println("Generating bootstrapping keys...")
+		btpevk = bootstrapping.GenEvaluationKeys(btpParams, params, sk)
+		fmt.Println("Done")
 
 		// Print Keys' size:
-		fmt.Printf("Encryption Scheme Params occupy %d bytes\n", params.MarshalBinarySize())
-		fmt.Printf("Secret Key:%d bytes, Public Key:%d bytes\n", sk.MarshalBinarySize(), pk.MarshalBinarySize())
-		fmt.Printf("Relinearization Key: %d bytes\n", rlk.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme btpParams occupy %d bytes\n", btpParams.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme params    occupy %d bytes\n", params.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme secretkey occupy %d bytes\n", sk.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme publickey occupy %d bytes\n", pk.MarshalBinarySize())
+		fmt.Printf("(btp) Relinearization Key   occupy %d bytes\n", btpevk.Rlk.MarshalBinarySize())
+		fmt.Printf("(btp) Rotation Keys         occupy %d bytes\n", btpevk.Rtks.MarshalBinarySize())
+		fmt.Printf("(btp) DtS Switching Key     occupy %d bytes\n", btpevk.SwkDtS.MarshalBinarySize())
+		fmt.Printf("(btp) StD Switching Key     occupy %d bytes\n", btpevk.SwkStD.MarshalBinarySize())
 
-		// Store this set of keys, for convenience:
-		keysTracker := auxio.NewTracker(KeysPath, -1)
-		n := 0
-		n, err = keysTracker.StoreUpdateOne(&params)
+		_, err = StoreKeys_btpVersion(KeysPath_btpVersion, params, btpParams, sk, pk, btpevk.Rlk, btpevk.Rtks, btpevk.SwkDtS, btpevk.SwkStD)
 		if err != nil {
 			panic(err)
-		} else {
-			fmt.Printf("Store params %d bytes\n", n)
 		}
-		n, err = keysTracker.StoreUpdateOne(sk)
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Store sk %d bytes\n", n)
-		}
-		n, err = keysTracker.StoreUpdateOne(pk)
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Store pk %d bytes\n", n)
-		}
-		n, err = keysTracker.StoreUpdateOne(rlk)
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Store rlk %d bytes\n", n)
-		}
-		n, err = keysTracker.StoreFinish()
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Store filetracker %d bytes\n", n)
-		}
+		btpevk.Rtks = nil
+		btpevk.SwkDtS = nil
+		btpevk.SwkStD = nil
+		debug.FreeOSMemory()
 	}
 
-	inputLevel := 9
+	// let rlk be a copy of btpevk.Rlk, they share the same memory address.
+	rlk = btpevk.Rlk // History lefting problems... rlk should be deleted, but...
 
 	// Encryptor
 	encryptor := ckks.NewEncryptor(params, pk)
@@ -635,6 +127,12 @@ func PCA_check(loadkeysFromDisk bool) {
 	// evaluator
 	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
 
+	// In the Boostrapping Version, we do not begin the performance of operations from the top level,
+	// instead we will begin at the first level which is not included in bootstrap procedure, the number of this level can be
+	// computed by:
+	MaxLevel := btpParams.SlotsToCoeffsParameters.LevelStart - len(btpParams.SlotsToCoeffsParameters.ScalingFactor)
+	inputLevel := 7
+
 	// create the Map and LinearTransform object of Transpose LinearTransformation
 	fmt.Printf("create the Map and LinearTransform object of Transpose LinearTransformation\n")
 	var TransposeDiagonalMap map[int][]float64
@@ -642,7 +140,7 @@ func PCA_check(loadkeysFromDisk bool) {
 	if err != nil {
 		panic(err)
 	}
-	TransposeLT := ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, TransposeDiagonalMap, params.MaxLevel(), params.DefaultScale(), N1Trans, (d - 1), params.LogSlots())
+	TransposeLT := ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, TransposeDiagonalMap, MaxLevel, params.DefaultScale(), N1Trans, (d - 1), params.LogSlots())
 
 	// create the Map of Sigma LinearTransformation
 	fmt.Printf("create the Map of Sigma LinearTransformation\n")
@@ -664,16 +162,16 @@ func PCA_check(loadkeysFromDisk bool) {
 	DSigmaLTs2 := make([]ckks.LinearTransform, len(DSigmaDiagonalMaps2))
 	for i := range DSigmaLTs1 {
 		if i == len(DSigmaLTs1)-1 {
-			DSigmaLTs1[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DSigmaDiagonalMaps1[i], params.MaxLevel(), params.DefaultScale(), DSigma_BSGSN1, 1, params.LogSlots())
+			DSigmaLTs1[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DSigmaDiagonalMaps1[i], MaxLevel, params.DefaultScale(), DSigma_BSGSN1, 1, params.LogSlots())
 		} else {
-			DSigmaLTs1[i] = ckks.GenLinearTransform(encoder, DSigmaDiagonalMaps1[i], params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+			DSigmaLTs1[i] = ckks.GenLinearTransform(encoder, DSigmaDiagonalMaps1[i], MaxLevel, params.DefaultScale(), params.LogSlots())
 		}
 	}
 	for i := range DSigmaLTs2 {
 		if i == len(DSigmaLTs2)-1 {
-			DSigmaLTs2[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DSigmaDiagonalMaps2[i], params.MaxLevel(), params.DefaultScale(), DSigma_BSGSN1, 1, params.LogSlots())
+			DSigmaLTs2[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DSigmaDiagonalMaps2[i], MaxLevel, params.DefaultScale(), DSigma_BSGSN1, 1, params.LogSlots())
 		} else {
-			DSigmaLTs2[i] = ckks.GenLinearTransform(encoder, DSigmaDiagonalMaps2[i], params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+			DSigmaLTs2[i] = ckks.GenLinearTransform(encoder, DSigmaDiagonalMaps2[i], MaxLevel, params.DefaultScale(), params.LogSlots())
 		}
 	}
 
@@ -682,9 +180,9 @@ func PCA_check(loadkeysFromDisk bool) {
 	DTauLTs := make([]ckks.LinearTransform, len(DTauDiagonalMaps))
 	for i := range DTauLTs {
 		if i == len(DTauLTs)-1 {
-			DTauLTs[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DTauDiagonalMaps[i], params.MaxLevel(), params.DefaultScale(), DTau_BSGSN1, d, params.LogSlots())
+			DTauLTs[i] = ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, DTauDiagonalMaps[i], MaxLevel, params.DefaultScale(), DTau_BSGSN1, d, params.LogSlots())
 		} else {
-			DTauLTs[i] = ckks.GenLinearTransform(encoder, DTauDiagonalMaps[i], params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+			DTauLTs[i] = ckks.GenLinearTransform(encoder, DTauDiagonalMaps[i], MaxLevel, params.DefaultScale(), params.LogSlots())
 		}
 	}
 
@@ -696,7 +194,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		if err != nil {
 			panic(err)
 		}
-		LT := ckks.GenLinearTransform(encoder, U, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+		LT := ckks.GenLinearTransform(encoder, U, MaxLevel, params.DefaultScale(), params.LogSlots())
 		ColShiftLTs = append(ColShiftLTs, LT)
 	}
 
@@ -711,7 +209,7 @@ func PCA_check(loadkeysFromDisk bool) {
 	var RtkTracker4MtrxMult *auxio.Filetracker
 	var RtkTracker4RowtotalSum *auxio.Filetracker
 
-	if loadkeysFromDisk {
+	if loadPCAkeysFromDisk {
 		// we are not going to imediately get these keys from disk when they already exists in disk.
 		fmt.Printf("we only Init the Tracker for rotationKeySets, but are not going to imediately get these keys from disk.\n")
 		RtkTracker4Transpose = auxio.NewTracker4File(Rtk4Transpose_path)
@@ -724,13 +222,25 @@ func PCA_check(loadkeysFromDisk bool) {
 		RtkTracker4MtrxMult = auxio.NewTracker(Rtk4MtrxMult_path, -1)
 		RtkTracker4RowtotalSum = auxio.NewTracker(Rtk4RowtotalSum_path, -1)
 
-		// kgen = ckks.NewKeyGenerator(params)
+		kgen = ckks.NewKeyGenerator(params)
 
 		// Create Rotation keys correspond to Transposition, MatrixMult and RowTotalSum
 		fmt.Printf("create Rotation keys correspond to Transposition, MatrixMult and RowTotalSum\n")
 		fmt.Printf("creating Rotation keys for Transposition\n")
 		Rotation4Transpose := TransposeLT.Rotations4ArithmeticSeq()
 		galk4Transpose = kgen.GenRotationKeysForRotations(Rotation4Transpose, false, sk)
+		_, err = RtkTracker4Transpose.StoreUpdateOne(galk4Transpose)
+		if err != nil {
+			panic(err)
+		} else {
+			fmt.Printf("Store galk4Transpose %d bytes\n", galk4Transpose.MarshalBinarySize())
+		}
+		_, err = RtkTracker4Transpose.StoreFinish()
+		if err != nil {
+			panic(err)
+		}
+		galk4Transpose = nil
+		debug.FreeOSMemory()
 
 		fmt.Printf("creating Rotation keys for MatrixMult\n")
 		var MtrxMultRotmap = make(map[int]bool)
@@ -761,28 +271,6 @@ func PCA_check(loadkeysFromDisk bool) {
 		}
 		Rotation4MtrxMult = append(Rotation4MtrxMult, -d+d*d)
 		galk4MtrxMult = kgen.GenRotationKeysForRotations(Rotation4MtrxMult, false, sk)
-
-		fmt.Printf("creating Rotation keys for RowtotalSum\n")
-		Rotation4RowTotalSum := make([]int, d)
-		for i := d; i < d*d; i = (i << 1) {
-			Rotation4RowTotalSum = append(Rotation4RowTotalSum, i)
-		}
-		// Rotation4RowTotalSum = append(Rotation4RowTotalSum, -d+d*d)
-		galk4RowtotalSum = kgen.GenRotationKeysForRotations(Rotation4RowTotalSum, false, sk)
-
-		// Store the rotation keys if they are freshly generated.
-		fmt.Printf("Store the rotation keys since they are freshly generated.\n")
-		_, err = RtkTracker4Transpose.StoreUpdateOne(galk4Transpose)
-		if err != nil {
-			panic(err)
-		} else {
-			fmt.Printf("Store galk4Transpose %d bytes\n", galk4Transpose.MarshalBinarySize())
-		}
-		_, err = RtkTracker4Transpose.StoreFinish()
-		if err != nil {
-			panic(err)
-		}
-
 		_, err = RtkTracker4MtrxMult.StoreUpdateOne(galk4MtrxMult)
 		if err != nil {
 			panic(err)
@@ -793,7 +281,16 @@ func PCA_check(loadkeysFromDisk bool) {
 		if err != nil {
 			panic(err)
 		}
+		galk4MtrxMult = nil
+		debug.FreeOSMemory()
 
+		fmt.Printf("creating Rotation keys for RowtotalSum\n")
+		Rotation4RowTotalSum := make([]int, d)
+		for i := d; i < d*d; i = (i << 1) {
+			Rotation4RowTotalSum = append(Rotation4RowTotalSum, i)
+		}
+		// Rotation4RowTotalSum = append(Rotation4RowTotalSum, -d+d*d)
+		galk4RowtotalSum = kgen.GenRotationKeysForRotations(Rotation4RowTotalSum, false, sk)
 		_, err = RtkTracker4RowtotalSum.StoreUpdateOne(galk4RowtotalSum)
 		if err != nil {
 			panic(err)
@@ -805,7 +302,6 @@ func PCA_check(loadkeysFromDisk bool) {
 			panic(err)
 		}
 	}
-
 	// Free the memory:
 	galk4Transpose = nil
 	galk4MtrxMult = nil
@@ -850,7 +346,7 @@ func PCA_check(loadkeysFromDisk bool) {
 	for i := 0; i < len(IdentityVec); i++ {
 		IdentityVec[i] = 0.5
 	}
-	// ptIdentity := encoder.EncodeNew(IdentityVec, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
+	// ptIdentity := encoder.EncodeNew(IdentityVec, MaxLevel, params.DefaultScale(), params.LogSlots())
 
 	// Need to Store some of the ciphertexts into disk.
 	var Covtracker = auxio.NewTracker(ctCov_path, -1)
@@ -936,7 +432,7 @@ func PCA_check(loadkeysFromDisk bool) {
 		// We then compute the Sum of One Row of Subblocks to prepare for the Aggregation of Mean vector computation
 		now = time.Now()
 		fmt.Printf("We then compute the Sum of One Row of Subblocks to prepare for the Aggregation of Mean vector computation\n")
-		ctMean[(k-1)/matrixCols] = encryptor.EncryptZeroNew(params.MaxLevel()) // dbg testing
+		ctMean[(k-1)/matrixCols] = encryptor.EncryptZeroNew(MaxLevel) // dbg testing
 		for j := 1; j < rows+1; j += matrixRows {
 			evaluator.Add(ctMean[(k-1)/matrixCols], ctORSB[(j-1)/matrixRows], ctMean[(k-1)/matrixCols])
 			ctORSB[(j-1)/matrixRows] = nil // free the space.
@@ -1040,6 +536,7 @@ func PCA_check(loadkeysFromDisk bool) {
 					}
 				}
 				wg_subroutine.Wait()
+
 				// Compute MtrxMult between element in ctORSBT and elements in ctOCSB:
 				fmt.Printf("Compute MtrxMult between ctORSBT[%d] and elements in %d-th ctOCSB, and add them to the previous result in ctOCSBSum:\n", idx, idx)
 				ctOCSBTemp, err := mtrxmult.SquareMatrix_MultBSGS_DecomposeVer3_NeedLTs_dbg(params, sk, rlk, galk4MtrxMult, ctORSBT_SigmaDecomp[idx], ctOCSB, DTauLTs, d, len(ctOCSB))
@@ -1082,7 +579,7 @@ func PCA_check(loadkeysFromDisk bool) {
 			}
 			//fmt.Printf("ctCov[%d][%d] before scaling has scale %f, level %d\n", (k-1)/matrixCols, i, math.Log2(ctOCSBSum[i].Scale.Float64()), ctOCSBSum[i].Level())
 			// auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
-			// ctOCSBSum[i] = encryptor.EncryptNew(encoder.EncodeNew(auxio.DecryptDecode(params, sk, ctOCSBSum[i]), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+			// ctOCSBSum[i] = encryptor.EncryptNew(encoder.EncodeNew(auxio.DecryptDecode(params, sk, ctOCSBSum[i]), MaxLevel, params.DefaultScale(), params.LogSlots()))
 			evaluator.MultByConst(ctOCSBSum[i], 1.0/float64(rows), ctOCSBSum[i])
 			err = evaluator.Rescale(ctOCSBSum[i], params.DefaultScale(), ctOCSBSum[i])
 			if err != nil {
@@ -1092,7 +589,6 @@ func PCA_check(loadkeysFromDisk bool) {
 			ctCov[(k-1)/matrixCols][i] = ctOCSBSum[i].CopyNew()
 			auxio.Quick_check_matrix(params, sk, ctCov[(k-1)/matrixCols][i], d, d)
 		}
-
 		galk4MtrxMult = nil
 		fmt.Printf("X*X^T %d/7 process Done in %s\n", (k-1)/matrixCols+1, time.Since(now))
 		elapsed += time.Since(now)
@@ -1202,16 +698,14 @@ func PCA_check(loadkeysFromDisk bool) {
 	for i := 0; i < len(ctORSBT); i++ {
 		ctORSBT[i] = nil
 	}
-
 }
 
-func CovMatrix_check() {
-	// initialize encryption scheme params.
+func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 	var err error
-	matrixCols := 112
+	matrixCols := 128
 	// matrixRows := 128
 	// rows := 256
-	cols := 785
+	cols := 257
 
 	// Size of the Square Matrix.
 	d := 1 << 7
@@ -1219,19 +713,86 @@ func CovMatrix_check() {
 	// N1
 	N1Trans := 16
 
+	// Target Number of EigenVectors.
+	TargetEigVecNum := 4
+
+	// necessary file paths:
+	var KeysPath_btpVersion string
+	var Rtk4Transpose_path string
+	var Rtk4RowtotalSum_path string
+	var Rtk4ColtotalSum_path string
+	var ctCov_path string
+	var ctMean_path string
+	if btpparamsOn {
+
+		KeysPath_btpVersion = "Keys_btpVer"
+		Rtk4Transpose_path = "Rtk4Transpose_btpVer"
+		Rtk4RowtotalSum_path = "Rtk4RowtotalSum_btpVer"
+		Rtk4ColtotalSum_path = "Rtk4ColtotalSum_btpVer"
+		ctCov_path = "ctCov_btpVer"
+		ctMean_path = "ctMean_btpVer"
+	} else {
+		KeysPath_btpVersion = "Keys"
+		Rtk4Transpose_path = "Rtk4Transpose"
+		Rtk4RowtotalSum_path = "Rtk4RowtotalSum"
+		Rtk4ColtotalSum_path = "Rtk4ColtotalSum"
+		ctCov_path = "ctCov"
+		ctMean_path = "ctMean"
+	}
+
+	// initialize encryption scheme params.
+
+	//var ckksParams ckks.ParametersLiteral
+	var btpParams bootstrapping.Parameters
 	var params ckks.Parameters
 	var sk *rlwe.SecretKey
 	var pk *rlwe.PublicKey
 	var rlk *rlwe.RelinearizationKey
+	var btpevk bootstrapping.EvaluationKeys
+	var bootstrapper *bootstrapping.Bootstrapper
 	// var kgen rlwe.KeyGenerator
 
-	params, sk, pk, rlk, err = LoadKeys_check()
-	if err != nil {
-		panic(err)
+	if btpparamsOn {
+		if reencryptionMode {
+			params, btpParams, sk, pk, btpevk.Rlk, btpevk.Rtks, btpevk.SwkDtS, btpevk.SwkStD, err = LoadKeys_btpVersion(KeysPath_btpVersion)
+			if err != nil {
+				panic(err)
+			}
+			// let rlk be a copy of btpevk.Rlk, they share the same memory address.
+			rlk = btpevk.Rlk // History lefting problems... rlk should be deleted, but...
+
+			// bootstrapper
+			if bootstrapper, err = bootstrapping.NewBootstrapper(params, btpParams, btpevk); err != nil {
+				panic(err)
+			}
+		} else {
+			params, btpParams, sk, pk, rlk, _, _, _, err = LoadKeys_btpVersion(KeysPath_btpVersion)
+		}
+	} else {
+		params, sk, pk, rlk, err = LoadKeys_check()
+		if err != nil {
+			panic(err)
+		}
 	}
+
+	// Encryptor
+	encryptor := ckks.NewEncryptor(params, pk)
+
+	// Decryptor
+	decryptor := ckks.NewDecryptor(params, sk)
 
 	// encoder
 	encoder := ckks.NewEncoder(params)
+
+	// In the Boostrapping Version, we do not begin the performance of operations from the top level,
+	// instead we will begin at the first level which is not included in bootstrap procedure, the number of this level can be
+	// computed by:
+	var MaxLevel int
+	if btpparamsOn {
+		MaxLevel = btpParams.SlotsToCoeffsParameters.LevelStart - len(btpParams.SlotsToCoeffsParameters.ScalingFactor)
+	} else {
+		MaxLevel = params.MaxLevel()
+	}
 
 	// create the Map and LinearTransform object of Transpose LinearTransformation
 	fmt.Printf("create the Map and LinearTransform object of Transpose LinearTransformation\n")
@@ -1240,7 +801,7 @@ func CovMatrix_check() {
 	if err != nil {
 		panic(err)
 	}
-	TransposeLT := ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, TransposeDiagonalMap, params.MaxLevel(), params.DefaultScale(), N1Trans, (d - 1), params.LogSlots())
+	TransposeLT := ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, TransposeDiagonalMap, MaxLevel, params.DefaultScale(), N1Trans, (d - 1), params.LogSlots())
 
 	// create FileTrackers
 	var Meantracker *auxio.Filetracker
@@ -1256,13 +817,14 @@ func CovMatrix_check() {
 	ctCov := make([][]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctMean := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctMMT := make([][]*rlwe.Ciphertext, (cols-1)/matrixCols) // ciphertext for MeanVec · MeanVec^T
-	ctEigVec := make([][]*rlwe.Ciphertext, (cols-1)/matrixCols)
-	ctEigVal := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
+	ctEigVec := make([][]*rlwe.Ciphertext, TargetEigVecNum)
+	ctEigVal := make([]*rlwe.Ciphertext, TargetEigVecNum)
 	for i := 0; i < (cols-1)/matrixCols; i++ {
 		ctCov[i] = make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 		ctMMT[i] = make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
+	}
+	for i := 0; i < len(ctEigVec); i++ {
 		ctEigVec[i] = make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
-
 	}
 	var ctTemp *rlwe.Ciphertext
 	IdentityVec := make([]float64, 1<<params.LogSlots())
@@ -1273,22 +835,19 @@ func CovMatrix_check() {
 
 	// Compute Mean*Mean^T, first retrieving the Mean from disk.
 	//_, err = auxio.ReadCtVec4file(Meantracker.Fp, Meantracker.Hierarchy[0], ctMean, 0)
-	Meantracker = auxio.NewTracker4File("ctMean")
-	RtkTracker4Transpose = auxio.NewTracker4File("Rtk4Transpose")
-	RtkTracker4RowtotalSum = auxio.NewTracker4File("Rtk4RowtotalSum")
-	//RtkTracker4ColtotalSum = auxio.NewTracker4File("Rtk4ColtotalSum")
+	Meantracker = auxio.NewTracker4File(ctMean_path)
+	RtkTracker4Transpose = auxio.NewTracker4File(Rtk4Transpose_path)
+	RtkTracker4RowtotalSum = auxio.NewTracker4File(Rtk4RowtotalSum_path)
+	// RtkTracker4ColtotalSum = auxio.NewTracker4File(Rtk4ColtotalSum_path)
 
-	galk4Transpose = new(rlwe.RotationKeySet)
-	RtkTracker4Transpose.ReadUpdateOne(galk4Transpose)
 	galk4RowtotalSum = new(rlwe.RotationKeySet)
 	galk4ColtotalSum = new(rlwe.RotationKeySet)
 	RtkTracker4RowtotalSum.ReadUpdateOne(galk4RowtotalSum)
 	//RtkTracker4ColtotalSum.ReadUpdateOne(galk4ColtotalSum)
 
 	// Create RotationKeys for ColumnTotalSum
-
 	kgen := ckks.NewKeyGenerator(params)
-	RtkTracker4ColtotalSum = auxio.NewTracker("Rtk4ColtotalSum", -1)
+	RtkTracker4ColtotalSum = auxio.NewTracker(Rtk4ColtotalSum_path, -1)
 	Rots4ColtotalSum := make([]int, 0)
 	for i := 1; i < d; i = (i << 1) {
 		Rots4ColtotalSum = append(Rots4ColtotalSum, i) // wairing to check
@@ -1304,10 +863,20 @@ func CovMatrix_check() {
 		panic(err)
 	}
 
+	// timer
+	var now time.Time
+	var elapsed time.Duration
+	cnt := 0
+	var btpnow time.Time
+	var btpelapsed time.Duration
+
+	// Retrieve the galk4Transpose
+	fmt.Printf("Retrieve the galk4Transpose\n")
+	galk4Transpose = new(rlwe.RotationKeySet)
+	RtkTracker4Transpose.ReadUpdateOne(galk4Transpose)
+
 	// evaluator
 	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk4Transpose})
-	encryptor := ckks.NewEncryptor(params, pk)
-	decryptor := ckks.NewDecryptor(params, sk)
 
 	for i := 0; i < len(ctMean); i++ {
 		ctMean[i] = new(rlwe.Ciphertext)
@@ -1316,11 +885,13 @@ func CovMatrix_check() {
 		fmt.Printf("The %d-th ctMean with scale %f, level %d: \n", i, math.Log2(ctMean[i].Scale.Float64()), ctMean[i].Level())
 	}
 
+	fmt.Printf("Compute the Transpose of Mean vector\n")
+	now = time.Now()
 	for i := 0; i < len(ctMean); i++ {
 
 		ctTemp = evaluator.LinearTransform4ArithmeticSeqNew(ctMean[i], TransposeLT)[0]
 		fmt.Printf("The %d-th ctMean^T with scale %f, level %d: \n", i, math.Log2(ctTemp.Scale.Float64()), ctTemp.Level())
-		auxio.Quick_check_matrix_full(params, sk, ctTemp, d, d)
+		auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 		if err != nil {
 			panic(err)
 		}
@@ -1331,19 +902,25 @@ func CovMatrix_check() {
 			fmt.Printf("The ctMMT[%d][%d] with scale %f, level %d: \n", i, j, math.Log2(ctMMT[i][j].Scale.Float64()), ctMMT[i][j].Level())
 		}
 	}
+	fmt.Printf("Transposition of Mean vector complete in %s\n", time.Since(now))
+	elapsed += time.Since(now)
 	// free the Transpose Rotation keys:
 	galk4Transpose = nil
+	debug.FreeOSMemory()
 
 	// Retrieve the X*X^T from disk, and do Cov = X*X^T-Mean*Mean^T
-	Covtracker = auxio.NewTracker4File("ctCov")
+	fmt.Printf("Retrieve the X*X^T from disk, and do Cov = X*X^T-Mean*Mean^T\n")
+	now = time.Now()
+	Covtracker = auxio.NewTracker4File(ctCov_path)
 	for i := 0; i < len(ctCov); i++ {
 		//_, err = auxio.ReadCtVec4file(Covtracker.Fp, Covtracker.Hierarchy[0], ctCov[i], i*Covtracker.Hierarchy[0]*Covtracker.Hierarchy[1])
 		for j := 0; j < len(ctCov); j++ {
 			fmt.Printf("The i:%d, j:%d ctMM^T with scale %f, level %d: \n", i, j, math.Log2(ctMMT[i][j].Scale.Float64()), ctMMT[i][j].Level())
-			auxio.Quick_check_matrix_full(params, sk, ctMMT[i][j], d, d)
+			auxio.Quick_check_matrix(params, sk, ctMMT[i][j], d, d)
 			ctCov[i][j] = new(rlwe.Ciphertext)
 			Covtracker.ReadUpdateOne(ctCov[i][j])
 			fmt.Printf("The Original i:%d, j:%d ctX^TX has scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
+
 			// Synchronizing scale Method 1:
 			/*
 				for k := 0; k <= ctCov[i][j].Level()-ctMMT[i][j].Level(); k++ {
@@ -1363,24 +940,59 @@ func CovMatrix_check() {
 					panic(err)
 				}
 			*/
-			evaluator.SetScale(ctMMT[i][j], ctCov[i][j].Scale)
+			if ctMMT[i][j].Level() >= ctCov[i][j].Level() {
+				evaluator.SetScale(ctMMT[i][j], ctCov[i][j].Scale)
+			} else {
+				evaluator.SetScale(ctCov[i][j], ctMMT[i][j].Scale)
+			}
 
 			// evaluator.Rescale(ctCov[i][j], params.DefaultScale(), ctCov[i][j])
 			fmt.Printf("The i:%d, j:%d ctX^TX with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
-			auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
+			auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 			evaluator.Sub(ctCov[i][j], ctMMT[i][j], ctCov[i][j])
 			fmt.Printf("The i:%d, j:%d ctCov: with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
-			//auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
+			// auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
 			// do one recryption,this is for the following PowerMethod.
 			// ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-			auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
+			auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+
+			if ctCov[i][j].Level() < 6 {
+				if reencryptionMode {
+					// ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					btpnow = time.Now()
+					fmt.Printf("Before Bootstrap, ctCov[%d][%d] :\n", i, j)
+					auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+
+					/*
+						fmt.Printf("Debug scenario: \n")
+						ctTemp := bootstrapper.Bootstrap_dbg(ctCov[i][j])
+						auxio.Quick_check_infos(ctTemp, "ctTemp original")
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+						ctTemp = bootstrapper.Bootstrap_dbg(ctCov[i][j])
+						auxio.Quick_check_infos(ctTemp, "ctTemp after manual re-encrypt")
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+					*/
+
+					ctCov[i][j] = bootstrapper.Bootstrap(ctCov[i][j])
+					fmt.Printf("After Bootstrap in %s, ctCov[%d][%d]:\n", time.Since(btpnow), i, j)
+					auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+					elapsed += time.Since(btpnow)
+				} else {
+					ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+				}
+				fmt.Printf("ctCov is brought back to level %d\n", ctCov[i][j].Level())
+				cnt++
+			}
 		}
 	}
+	elapsed += time.Since(now)
+	fmt.Printf("Cov complete in %s\n", time.Since(now))
 
 	// Compute the k most dominant eigenVectors and the corresponding eigenValues, We will skip the Boostrapping procedure, and use recryption instead.
 	// create a Vi
 
-	ptVi := auxio.Encode_single_float64(params, 1.0, params.MaxLevel(), params.DefaultScale())
+	ptVi := auxio.Encode_single_float64(params, 1.0, MaxLevel, params.DefaultScale())
 	ctVi := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctVip1 := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctViT := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
@@ -1393,36 +1005,92 @@ func CovMatrix_check() {
 	// PowerMethod Iteration, iteratively compute: Vi <- Vi^T * Cov , notice that Cov is a semmetric matrix.
 	var ctSum *rlwe.Ciphertext
 	// var ctSign *rlwe.Ciphertext
-	TargetEigVecNum := 2
-	IterNum := 6
-	NewtonIterNum := 15
-	VecMod := 0 // We will have two Vector Mod: ColVector Mod (1) & RowVector Mod (0)
 
+	IterNum := 5
+	NewtonIterNum := 12
+	VecMod := 1 // We will have two Vector Mod: ColVector Mod (1) & RowVector Mod (0)
+
+	fmt.Printf("Entering PowerMethod\n")
+	now = time.Now()
 	for k := 0; k < TargetEigVecNum; k++ {
 		for i := 0; i < len(ctVi); i++ {
 			ctVi[i] = encryptor.EncryptNew(ptVi)
 		}
-		VecMod = 0
+		VecMod = 1
 		for t := 0; t < IterNum; t++ {
 			fmt.Printf("------------------ this is the %dth iteration ---------------\n", t)
 
-			if t == IterNum-1 {
-				NewtonIterNum = 20
-			}
+			fmt.Printf("Begin Cov LT\n")
 
-			if VecMod == 0 {
-				/*
-					if ctVi[0].Level() < 6 {
-						for i := range ctVi {
-							ctVi[i] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctVi[i]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+			// Check if a re-encryption is needed.
+			if ctVi[0].Level() < 4 || t == IterNum-1 {
+				var ctTemp *rlwe.Ciphertext
+				if VecMod == 0 {
+					/*
+						fmt.Printf("Before Combination:\n")
+						for _, ct := range ctVi {
+							auxio.Quick_check_matrix(params, sk, ct, d, d)
 						}
+					*/
+					ctTemp, err = mtrxmult.ReplicatedVec_Combine_dbg(params, sk, ctVi, d, VecMod)
+					if err != nil {
+						panic(err)
 					}
-				*/
+					// Decide bootstrap or re-encrypt
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctTemp:\n")
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						ctTemp = bootstrapper.Bootstrap(ctTemp)
+						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					ctVi, err = mtrxmult.ReplicateVec_Decompose_dbg(params, sk, galk4RowtotalSum, ctTemp, d, VecMod, len(ctVi))
+					/*
+						fmt.Printf("After Combination:\n")
+						for _, ct := range ctVi {
+							auxio.Quick_check_matrix(params, sk, ct, d, d)
+						}
+					*/
+					if err != nil {
+						panic(err)
+					}
+					fmt.Printf("ctVip1 is previously at level %d, we will bring it back to level %d\n", ctTemp.Level(), ctVip1[0].Level())
+					cnt++
+				} else if VecMod == 1 && (ctVi[0].Level() < 3 || t == IterNum-1) {
+					ctTemp, err = mtrxmult.ReplicatedVec_Combine_dbg(params, sk, ctVi, d, VecMod)
+					if err != nil {
+						panic(err)
+					}
+					// Decide bootstrap or re-encrypt
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctTemp:\n")
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						ctTemp = bootstrapper.Bootstrap(ctTemp)
+						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					ctVi, err = mtrxmult.ReplicateVec_Decompose_dbg(params, sk, galk4ColtotalSum, ctTemp, d, VecMod, len(ctVi))
+					if err != nil {
+						panic(err)
+					}
+					fmt.Printf("ctVip1 is previously at level %d, we will bring it back to level %d\n", ctTemp.Level(), ctVip1[0].Level())
+					cnt++
+				}
+			}
+			if VecMod == 0 {
 				for i := 0; i < len(ctCov); i++ {
 					// We will do ctCov[j][i] * ctVi[j] , but will actually do ColAggregate(\sum(ctCov[i][j] * ctVi[j])) to complete this task, where ctCov[i][j]^T = ctCov[j][i]
 					fmt.Printf("ctVi[%d]:\n", 0)
 					auxio.Quick_check_infos(ctVi[0], "ctVi")
-					ctSum = evaluator.MulNew(ctCov[i][0], ctVi[0]) // Consume one level
+					ctSum = evaluator.MulNew(ctVi[0], ctCov[i][0]) // Consume one level
 					fmt.Printf("ctCov[%d][%d]:\n", i, 0)
 					auxio.Quick_check_infos(ctCov[i][0], "ctCov")
 					// auxio.Quick_check_matrix(params, sk, ctCov[i][0], d, d)
@@ -1435,19 +1103,13 @@ func CovMatrix_check() {
 						//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 						fmt.Printf("ctVi[%d]:\n", j)
 						// auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
-						evaluator.MulAndAdd(ctCov[i][j], ctVi[j], ctSum)
+						evaluator.MulAndAdd(ctVi[j], ctCov[i][j], ctSum)
 						fmt.Printf("MulAndAddResult:\n")
 						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					}
 					evaluator.Relinearize(ctSum, ctSum)
 					//fmt.Printf("Before Aggregation:\n")
 					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
-
-					// Do one recryption
-					if ctSum.Level() < params.MaxLevel() {
-						ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-					}
-
 					err = evaluator.Rescale(ctSum, params.DefaultScale(), ctSum)
 					if err != nil {
 						panic(err)
@@ -1469,17 +1131,9 @@ func CovMatrix_check() {
 				VecMod = 1
 
 			} else if VecMod == 1 {
-				/*
-					if ctVi[0].Level() < 6 {
-						fmt.Printf("Do one Recryption\n")
-						for i := range ctVi {
-							ctVi[i] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctVi[i]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-						}
-					}
-				*/
 				for i := 0; i < len(ctCov); i++ {
 					// we will do ctCov[i][j] * ctVi[j], but will actually do RowAggregate(\sum(ctCov[j][i] * ctVi[j])) to complete this task, where ctCov[i][j]^T = ctCov[j][i]
-					ctSum = evaluator.MulNew(ctCov[0][i], ctVi[0]) // Consume one level
+					ctSum = evaluator.MulNew(ctVi[0], ctCov[0][i]) // Consume one level
 					fmt.Printf("ctCov[%d][%d]:\n", 0, i)
 					//auxio.Quick_check_matrix(params, sk, ctCov[0][i], d, d)
 					fmt.Printf("ctVi[%d]:\n", 0)
@@ -1491,19 +1145,13 @@ func CovMatrix_check() {
 						//auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
 						fmt.Printf("ctVi[%d]:\n", j)
 						//auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
-						evaluator.MulAndAdd(ctCov[j][i], ctVi[j], ctSum)
+						evaluator.MulAndAdd(ctVi[j], ctCov[j][i], ctSum)
 						fmt.Printf("MulAndAddResult:\n")
 						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					}
 					evaluator.Relinearize(ctSum, ctSum)
 					//fmt.Printf("Before Aggregation:\n")
 					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
-
-					// Do one recryption
-					if ctSum.Level() < params.MaxLevel() {
-						ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-					}
-
 					err = evaluator.Rescale(ctSum, params.DefaultScale(), ctSum)
 					if err != nil {
 						panic(err)
@@ -1524,6 +1172,7 @@ func CovMatrix_check() {
 				// now the ctVi has become the RowVecotr mod, we switch the sign:
 				VecMod = 0
 			}
+			fmt.Printf("Cov LT complete in %s\n", time.Since(now))
 
 			// if this is not the last turn, we will do the normalisation. The last turn is only for computing eigen value and do not update eigen vector.
 			if t < IterNum-1 {
@@ -1554,8 +1203,22 @@ func CovMatrix_check() {
 				auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 
 				// Taylor Init Guess:
-
-				ctGuess, err := nonpolyfunc.TaylorInitNew(params, rlk, ctSum, nonpolyfunc.Inv_sqrt_taylor2_0to2pow10[:]) // Consume one level *2
+				if ctSum.Level() <= 2 {
+					fmt.Printf("ctSum is now at level %d, we will bring it back to level %d\n", ctSum.Level(), MaxLevel)
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctSum:\n")
+						auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						ctSum = bootstrapper.Bootstrap(ctSum)
+						fmt.Printf("After Bootstrap in %s, ctSum:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					cnt++
+				}
+				ctGuess, err := nonpolyfunc.TaylorInitNew(params, rlk, ctSum, nonpolyfunc.Inv_sqrt_taypor1_0to2pow16[:]) // Consume one level *2
 				if err != nil {
 					panic(err)
 				}
@@ -1563,28 +1226,83 @@ func CovMatrix_check() {
 				auxio.Quick_check_matrix(params, sk, ctGuess, d, d)
 
 				// Do one Recryption:
-				ctGuess = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctGuess), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-				ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+				// ctGuess = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctGuess), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+				// ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
 
 				// InvSqrt by Newton:
-				ctInvsqrt, err := nonpolyfunc.InvSqrtByNewton_dbg(params, rlk, pk, sk, ctSum, ctGuess, NewtonIterNum) // Consume one level * 3 * NewtonIterNum
+				var ctInvsqrt *rlwe.Ciphertext
+				var btptimes int
+				var NewtonIterNumtmp = NewtonIterNum
+				if t == IterNum-2 {
+					NewtonIterNumtmp = NewtonIterNum + 5
+				}
+				if reencryptionMode {
+					ctInvsqrt, btptimes, err = nonpolyfunc.InvSqrtByNewton_btpVer3_dbg(params, rlk, pk, sk, ctSum, ctGuess, NewtonIterNumtmp, MaxLevel, reencryptionMode, bootstrapper) // Consume one level * 3 * NewtonIterNum
+				} else {
+					ctInvsqrt, btptimes, err = nonpolyfunc.InvSqrtByNewton_btpVer3_dbg(params, rlk, pk, sk, ctSum, ctGuess, NewtonIterNumtmp, MaxLevel, reencryptionMode) // Consume one level * 3 * NewtonIterNum
+				}
 				if err != nil {
 					panic(err)
 				}
+				cnt += btptimes
 				fmt.Printf("InvSqrt with Scale %f, Level %d:\n", math.Log2(ctInvsqrt.Scale.Float64()), ctInvsqrt.Level())
 				auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
 
 				// Do one Recryption:
-				ctInvsqrt = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctInvsqrt), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-				fmt.Printf("InvSqrt after recryption with Scale %f, Level %d:\n", math.Log2(ctInvsqrt.Scale.Float64()), ctInvsqrt.Level())
+				// ctInvsqrt = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctInvsqrt), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
+				// fmt.Printf("InvSqrt after recryption with Scale %f, Level %d:\n", math.Log2(ctInvsqrt.Scale.Float64()), ctInvsqrt.Level())
 
 				// Normalisation
+				if ctInvsqrt.Level() <= 1 {
+					fmt.Printf("ctInvsqrt is now at level %d, we will bring it back to level %d\n", ctInvsqrt.Level(), MaxLevel)
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctInvsqrt:\n")
+						auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
+						ctInvsqrt = bootstrapper.Bootstrap(ctInvsqrt)
+						fmt.Printf("After Bootstrap in %s, ctInvsqrt:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctInvsqrt = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctInvsqrt), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					cnt++
+				}
+				if ctVip1[0].Level() <= 1 {
+					var ctTemp *rlwe.Ciphertext
+					ctTemp, err = mtrxmult.ReplicatedVec_Combine_dbg(params, sk, ctVip1, d, VecMod)
+					if err != nil {
+						panic(err)
+					}
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctTemp:\n")
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						ctTemp = bootstrapper.Bootstrap(ctTemp)
+						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					ctVip1, err = mtrxmult.ReplicateVec_Decompose_dbg(params, sk, galk4ColtotalSum, ctTemp, d, VecMod, len(ctVip1))
+					if err != nil {
+						panic(err)
+					}
+					cnt++
+					fmt.Printf("ctVip1 is previously at level %d, we will bring it back to level %d\n", ctTemp.Level(), ctVip1[0].Level())
+				}
 				for i := 0; i < len(ctVip1); i++ {
+					fmt.Printf("ctVip1[%d] before normalisation:\n", i)
+					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
 					evaluator.MulRelin(ctVip1[i], ctInvsqrt, ctVip1[i])
 					err = evaluator.Rescale(ctVip1[i], params.DefaultScale(), ctVip1[i]) // Consume one level
 					if err != nil {
 						panic(err)
 					}
+					fmt.Printf("ctVip1[%d] after normalisation:\n", i)
+					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
+
 				}
 				fmt.Printf("ctVip1 after normalisation has Scale %f, Level %d, this will be used to update ctVi\n", math.Log2(ctVip1[0].Scale.Float64()), ctVip1[0].Level())
 
@@ -1635,8 +1353,6 @@ func CovMatrix_check() {
 				if err != nil {
 					panic(err)
 				}
-				ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-				fmt.Printf("Inner product before aggregation has scale %f, level %d after recryption\n", math.Log2(ctSum.Scale.Float64()), ctSum.Level())
 
 				// Aggregate ctSum then we get the eig_val.
 				// fmt.Printf("Before Inner Product:\n")
@@ -1659,6 +1375,21 @@ func CovMatrix_check() {
 				// Store the eig_Vec:
 				for i := 0; i < len(ctVi); i++ {
 					ctEigVec[k][i] = ctVi[i].CopyNew()
+				}
+				if ctEigVal[k].Level() <= ctCov[0][0].Level() {
+					fmt.Printf("ctEigVal is now at level %d, we will bring it back to level %d\n", ctEigVal[k].Level(), MaxLevel)
+					if reencryptionMode {
+						btpnow = time.Now()
+						fmt.Printf("Before Bootstrap, ctEigVal[k]:\n")
+						auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
+						ctEigVal[k] = bootstrapper.Bootstrap(ctEigVal[k])
+						fmt.Printf("After Bootstrap in %s, ctEigVal[k]:\n", time.Since(btpnow))
+						auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
+						elapsed += time.Since(btpnow)
+					} else {
+						ctEigVal[k] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctEigVal[k]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
+					}
+					cnt++
 				}
 
 				// Update Cov as the Shifted Cov, We will use container ctMMT to temporarily store the eigvec^T @ eigvec
@@ -1718,73 +1449,256 @@ func CovMatrix_check() {
 
 		}
 	}
+	elapsed += time.Since(now)
+	fmt.Printf("PowerMethod Done with btp times %d with total btptime %s, and total time %s\n", cnt, btpelapsed, time.Since(now))
+	ctEigenVectors := make([][]float64, TargetEigVecNum)
+	EigVecs := make([][]float64, TargetEigVecNum)
+	for i := range ctEigenVectors {
+		EigVec := make([]complex128, 0)
+		for j := range ctEigVec[i] {
+			fmt.Printf("Now extract partial EigenVector from ctEigVec[%d][%d]\n", i, j)
+			auxio.Quick_check_matrix_full(params, sk, ctEigVec[i][j], d, d)
+			partialEigVec_dup := auxio.DecryptDecode(params, sk, ctEigVec[i][j])
+			partialEigVec := make([]complex128, matrixCols)
+			for k := 0; k < matrixCols; k++ {
+				partialEigVec[k] = partialEigVec_dup[k*d+1] // Do not take the first column since it's precision is worse.
+			}
+			EigVec = append(EigVec, partialEigVec...)
+		}
+		EigVecs[i] = auxio.Complex2Float(EigVec)
+	}
+	auxio.ExportToCSV(EigVecs, "EigenVectors")
 
 }
 
-func LoadKeys_check() (params ckks.Parameters, sk *rlwe.SecretKey, pk *rlwe.PublicKey, rlk *rlwe.RelinearizationKey, err error) {
-	// var err error
-	// var params ckks.Parameters
-	// var sk *rlwe.SecretKey
-	// var pk *rlwe.PublicKey
-	// var rlk *rlwe.RelinearizationKey
-	// var galk4Transpose *rlwe.RotationKeySet
-	// var galk4MtrxMult *rlwe.RotationKeySet
-	// var galk4RowtotalSum *rlwe.RotationKeySet
-
+func LoadKeys_btpVersion(path string) (params ckks.Parameters, btpParams bootstrapping.Parameters, sk *rlwe.SecretKey, pk *rlwe.PublicKey, btprlk *rlwe.RelinearizationKey, btpgalks *rlwe.RotationKeySet, swkDtS *rlwe.SwitchingKey, swkStD *rlwe.SwitchingKey, err error) {
 	// Allocate Memory for keys
 	sk = new(rlwe.SecretKey)
 	pk = new(rlwe.PublicKey)
-	rlk = new(rlwe.RelinearizationKey)
+	btprlk = new(rlwe.RelinearizationKey)
+	btpgalks = new(rlwe.RotationKeySet)
+	swkDtS = new(rlwe.SwitchingKey)
+	swkStD = new(rlwe.SwitchingKey)
 
 	// create Keys' File Tracker.
-	var keysTracker = auxio.NewTracker4File("Keys")
-	// var RtkTracker4Transpose = auxio.NewTracker4File("")
-	// var RtkTracker4MtrxMult = auxio.NewTracker4File("")
-	// var RtkTracker4RowtotalSum = auxio.NewTracker4File("")
-	var n int // record IO bytes.
+	var keysTracker = auxio.NewTracker4File(path)
+	var n int
 
-	// Load sk,pk and rlk.
+	// Load sk,pk, etc...
 	n, err = keysTracker.ReadUpdateOne(&params)
 	if err != nil {
 		panic(err)
 	} else {
 		fmt.Printf("Read params %d bytes\n", n)
 	}
+
+	n, err = keysTracker.ReadUpdateOne(&btpParams)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Read btpParams %d bytes\n", n)
+	}
+
 	n, err = keysTracker.ReadUpdateOne(sk)
 	if err != nil {
 		panic(err)
 	} else {
 		fmt.Printf("Read sk %d bytes\n", n)
 	}
+
 	n, err = keysTracker.ReadUpdateOne(pk)
 	if err != nil {
 		panic(err)
 	} else {
 		fmt.Printf("Read pk %d bytes\n", n)
 	}
-	n, err = keysTracker.ReadUpdateOne(rlk)
+
+	n, err = keysTracker.ReadUpdateOne(btprlk)
 	if err != nil {
 		panic(err)
 	} else {
-		fmt.Printf("Read rlk %d bytes\n", n)
+		fmt.Printf("Read btprlk %d bytes\n", n)
 	}
-	//
+
+	n, err = keysTracker.ReadUpdateOne(btpgalks)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Read btpgalks %d bytes\n", n)
+	}
+
+	n, err = keysTracker.ReadUpdateOne(swkDtS)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Read swkDtS %d bytes\n", n)
+	}
+
+	n, err = keysTracker.ReadUpdateOne(swkStD)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Read swkStD %d bytes\n", n)
+	}
+
 	return
 
 }
 
-func Transepose_check() {
+func StoreKeys_btpVersion(path string, params ckks.Parameters, btpParams bootstrapping.Parameters, sk *rlwe.SecretKey, pk *rlwe.PublicKey, btprlk *rlwe.RelinearizationKey, btpgalks *rlwe.RotationKeySet, swkDtS *rlwe.SwitchingKey, swkStD *rlwe.SwitchingKey) (n int, err error) {
+	keysTracker := auxio.NewTracker(path, -1)
+	n = 0
+	n, err = keysTracker.StoreUpdateOne(&params)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store params %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(&btpParams)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store params %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(sk)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store sk %d bytes\n", n)
+	}
+	n, err = keysTracker.StoreUpdateOne(pk)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store pk %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(btprlk)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store btprlk %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(btpgalks)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store btpgalks %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(swkDtS)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store swkDtS %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreUpdateOne(swkStD)
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store swkStD %d bytes\n", n)
+	}
+
+	n, err = keysTracker.StoreFinish()
+	if err != nil {
+		panic(err)
+	} else {
+		fmt.Printf("Store filetracker %d bytes\n", n)
+	}
+	return
+}
+
+func StoreAndLoadKeys_btpVersion_check(loadkeysFromDisk bool) {
 	var err error
+
+	var KeysPath_btpVersion = "Keys_btpVer"
+
+	// initialize encryption scheme params.
+
+	var ckksParams ckks.ParametersLiteral
+	var btpParams bootstrapping.Parameters
 	var params ckks.Parameters
+
 	var sk *rlwe.SecretKey
 	var pk *rlwe.PublicKey
-	var rlk *rlwe.RelinearizationKey
-	var galk4Transpose *rlwe.RotationKeySet
-	// var now time.Time
-	// create a 4x4 matrix matrixA
+	// var rlk *rlwe.RelinearizationKey
+	var btpevk bootstrapping.EvaluationKeys
+	var kgen rlwe.KeyGenerator
+
+	// generate Keys, we can load keys from disk or generate them.
+	if loadkeysFromDisk {
+		// In this function, we do not need to perform boostrapping, so we only pick up the keys we need in this section.
+		params, btpParams, sk, pk, btpevk.Rlk, btpevk.Rtks, btpevk.SwkDtS, btpevk.SwkStD, err = LoadKeys_btpVersion(KeysPath_btpVersion)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		paramSet := bootstrapping.N16QP1788H32768H32
+		ckksParams = paramSet.SchemeParams
+		btpParams = paramSet.BootstrappingParams
+		ckksParams.LogSlots = 14
+		params, err = ckks.NewParametersFromLiteral(ckksParams)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Println()
+		fmt.Printf("CKKS parameters: logN = %d, logSlots = %d, H(%d; %d), logQP = %d, levels = %d, scale= 2^%f, sigma = %f \n", params.LogN(), params.LogSlots(), params.HammingWeight(), btpParams.EphemeralSecretWeight, params.LogQP(), params.QCount(), math.Log2(params.DefaultScale().Float64()), params.Sigma())
+
+		kgen = ckks.NewKeyGenerator(params)
+		sk, pk = kgen.GenKeyPair()
+		fmt.Println()
+		fmt.Println("Generating bootstrapping keys...")
+		btpevk = bootstrapping.GenEvaluationKeys(btpParams, params, sk)
+		fmt.Println("Done")
+
+		// Print Keys' size:
+		fmt.Printf("Encryption Scheme btpParams occupy %d bytes\n", btpParams.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme params    occupy %d bytes\n", params.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme secretkey occupy %d bytes\n", sk.MarshalBinarySize())
+		fmt.Printf("Encryption Scheme publickey occupy %d bytes\n", pk.MarshalBinarySize())
+		fmt.Printf("(btp) Relinearization Key   occupy %d bytes\n", btpevk.Rlk.MarshalBinarySize())
+		fmt.Printf("(btp) Rotation Keys         occupy %d bytes\n", btpevk.Rtks.MarshalBinarySize())
+		fmt.Printf("(btp) DtS Switching Key     occupy %d bytes\n", btpevk.SwkDtS.MarshalBinarySize())
+		fmt.Printf("(btp) StD Switching Key     occupy %d bytes\n", btpevk.SwkStD.MarshalBinarySize())
+
+		_, err = StoreKeys_btpVersion(KeysPath_btpVersion, params, btpParams, sk, pk, btpevk.Rlk, btpevk.Rtks, btpevk.SwkDtS, btpevk.SwkStD)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	// let rlk be a copy of btpevk.Rlk, they share the same memory address.
+	//rlk = btpevk.Rlk // History lefting problems... rlk should be deleted, but...
+
+	// bootstrapper
+	var btp *bootstrapping.Bootstrapper
+	if btp, err = bootstrapping.NewBootstrapper(params, btpParams, btpevk); err != nil {
+		panic(err)
+	}
+
+	// Encryptor
+	encryptor := ckks.NewEncryptor(params, pk)
+
+	// Decryptor
+	decryptor := ckks.NewDecryptor(params, sk)
+
+	// encoder
+	encoder := ckks.NewEncoder(params)
+
+	// evaluator
+	// evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk})
+
+	// In the Boostrapping Version, we do not begin the performance of operations from the top level,
+	// instead we will begin at the first level which is not included in bootstrap procedure, the number of this level can be
+	// computed by:
+	MaxLevel := btpParams.SlotsToCoeffsParameters.LevelStart - len(btpParams.SlotsToCoeffsParameters.ScalingFactor)
+
 	d := 128
-	// Sigma_BSGSRatio := 2
-	// Tau_BSGSRatio := 2
+
 	MatrixA := make([][]float64, d)
 	for i := 0; i < d; i++ {
 		MatrixA[i] = make([]float64, d)
@@ -1792,43 +1706,67 @@ func Transepose_check() {
 			MatrixA[i][j] = float64(i*d + j)
 		}
 	}
-	auxio.Print_matrix_f64_2d(MatrixA, d, d)
-	// encode matrixA into a vector using row ordering
-	var a []float64
-	a, err = mtrxmult.Row_orderingInv(MatrixA)
+
+	// Generate a random plaintext
+	valuesWant := make([]complex128, params.Slots())
+	valuesWant2 := make([]complex128, params.Slots())
+	for i := range valuesWant {
+		valuesWant[i] = complex(utils.RandFloat64(-10, 10), 0)
+		valuesWant2[i] = valuesWant[i] * valuesWant[i]
+	}
+
+	plaintext := encoder.EncodeNew(valuesWant, MaxLevel, rlwe.NewScale(float64(params.RingQ().Modulus[MaxLevel])), params.LogSlots())
+
+	// Encrypt
+	ciphertext1 := encryptor.EncryptNew(plaintext)
+	btp.MulRelin(ciphertext1, ciphertext1, ciphertext1)
+	err = btp.Rescale(ciphertext1, params.DefaultScale(), ciphertext1)
+	btp.DropLevel(ciphertext1, MaxLevel-2)
+	btp.SetScale(ciphertext1, params.DefaultScale())
 	if err != nil {
 		panic(err)
 	}
 
-	params, sk, pk, rlk, err = LoadKeys_check()
-	if err != nil {
-		panic(err)
-	}
-	encoder := ckks.NewEncoder(params)
-	encryptor := ckks.NewEncryptor(params, pk)
+	// Decrypt, print and compare with the plaintext values
+	fmt.Println()
+	fmt.Println("Precision of values vs. ciphertext")
+	valuesTest1 := printDebug(params, ciphertext1, valuesWant2, decryptor, encoder)
 
-	// Load the Rotation keys for Transposition
-	fmt.Printf("Retrieve the Rotation keys for Transposition\n")
-	RtkTracker4Transpose := auxio.NewTracker4File("Rtk4Transpose")
-	galk4Transpose = new(rlwe.RotationKeySet)
-	_, err = RtkTracker4Transpose.ReadUpdateOne(galk4Transpose)
-	if err != nil {
-		panic(err)
-	}
-	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: galk4Transpose})
+	// Bootstrap the ciphertext (homomorphic re-encryption)
+	// It takes a ciphertext at level 0 (if not at level 0, then it will reduce it to level 0)
+	// and returns a ciphertext at level MaxLevel - k, where k is the depth of the bootstrapping circuit.
+	// CAUTION: the scale of the ciphertext MUST be equal (or very close) to params.DefaultScale()
+	// To equalize the scale, the function evaluator.SetScale(ciphertext, parameters.DefaultScale()) can be used at the expense of one level.
+	fmt.Println()
 
-	// create the Map and LinearTransform object of Transpose LinearTransformation
-	fmt.Printf("create the Map and LinearTransform object of Transpose LinearTransformation\n")
-	var TransposeDiagonalMap map[int][]float64
-	TransposeDiagonalMap, err = mtrxmult.Gen_transpose_diagonalVectors(d)
-	if err != nil {
-		panic(err)
-	}
-	TransposeLT := ckks.GenLinearTransformBSGS4ArithmeticSeq(encoder, TransposeDiagonalMap, params.MaxLevel(), params.DefaultScale(), 16, (d - 1), params.LogSlots())
-	ptA := encoder.EncodeNew(a, params.MaxLevel(), params.DefaultScale(), params.LogSlots())
-	ctA := encryptor.EncryptNew(ptA)
-	auxio.Quick_check_matrix_full(params, sk, ctA, d, d)
-	ctAT := evaluator.LinearTransform4ArithmeticSeqNew(ctA, TransposeLT)[0]
-	auxio.Quick_check_matrix_full(params, sk, ctAT, d, d)
+	fmt.Printf("cihphtext now at level %d, with scale %f\n", ciphertext1.Level(), math.Log2(ciphertext1.Scale.Float64()))
+	fmt.Println("Bootstrapping...")
+	now := time.Now()
+	ciphertext2 := btp.Bootstrap(ciphertext1)
+	fmt.Printf("Done in %s\n", time.Since(now))
 
+	// Decrypt, print and compare with the plaintext values
+	fmt.Println()
+	fmt.Println("Precision of ciphertext vs. Bootstrapp(ciphertext)")
+	printDebug(params, ciphertext2, valuesTest1, decryptor, encoder)
+
+}
+
+func printDebug(params ckks.Parameters, ciphertext *rlwe.Ciphertext, valuesWant []complex128, decryptor rlwe.Decryptor, encoder ckks.Encoder) (valuesTest []complex128) {
+
+	valuesTest = encoder.Decode(decryptor.DecryptNew(ciphertext), params.LogSlots())
+
+	fmt.Println()
+	fmt.Printf("Level: %d (logQ = %d)\n", ciphertext.Level(), params.LogQLvl(ciphertext.Level()))
+
+	fmt.Printf("Scale: 2^%f\n", math.Log2(ciphertext.Scale.Float64()))
+	fmt.Printf("ValuesTest: %6.10f %6.10f %6.10f %6.10f...\n", valuesTest[0], valuesTest[1], valuesTest[2], valuesTest[3])
+	fmt.Printf("ValuesWant: %6.10f %6.10f %6.10f %6.10f...\n", valuesWant[0], valuesWant[1], valuesWant[2], valuesWant[3])
+
+	precStats := ckks.GetPrecisionStats(params, encoder, nil, valuesWant, valuesTest, params.LogSlots(), 0)
+
+	fmt.Println(precStats.String())
+	fmt.Println()
+
+	return
 }
