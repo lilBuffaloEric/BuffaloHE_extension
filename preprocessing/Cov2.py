@@ -8,48 +8,6 @@ from PIL import Image
 import read_data
 
 
-'''
-# Create random 2d data
-mu = np.array([10,13])
-sigma = np.array([[3.5, -1.8], [-1.8,3.5]])
-
-print("Mu ", mu.shape)
-print("Sigma ", sigma.shape)
-
-# Create 1000 samples using mean and sigma
-org_data = rnd.multivariate_normal(mu, sigma, size=(1000))
-print("Data shape ", org_data.shape)
-# Subtract mean from data
-mean = np.mean(org_data, axis= 0)
-print("Mean ", mean.shape)
-mean_data = org_data - mean
-print("Data after subtracting mean ", org_data.shape, "\n")
-# Compute covariance matrix
-cov = np.cov(mean_data.T)
-cov = np.round(cov, 2)
-print("Covariance matrix ", cov.shape, "\n")
-
-# Perform eigen decomposition of covariance matrix
-eig_val, eig_vec = np.linalg.eig(cov)
-print("Eigen vectors ", eig_vec)
-print("Eigen values ", eig_val, "\n")
-'''
-
-input_size = 28 * 28
-hidden1_size = 50
-output_size = 10
-
-'''
-train_set = pd.read_csv('D:\\cardistry\\discovery@GY\\软件学院 2th\\机器学习基础\\机器学习实验三\\mnist\\mnist_train_normalised.csv')
-test_set = pd.read_csv('D:\\cardistry\\discovery@GY\\软件学院 2th\\机器学习基础\\机器学习实验三\\mnist\\mnist_test.csv')
-
-m = 10 + 1  # m: the number of neurons in a single hidden layer.
-o = 10  # o: the number of neurons in the output layer.
-n = train_set.shape[1] - 1 + 1  # n: features size (dimension)
-b = 300  # b: batch size.
-t = test_set.shape[0]  # t: batch size for test set.
-'''
-
 rows = 200
 cols = 256
 path = "EV\\EigenVectors"
@@ -64,9 +22,11 @@ X_ori = read_data.load_mnist(no_of_imgs=rows)  # original data matrix rows x col
 # X_ori = read_data.load_fashion_mnist(no_of_imgs=rows)
 
 
-
+# TO GENERATE TAILORED DATASET IN .CSV FILE FOR HOMOMORPHIC PCA, PLEASE UNCOMMENT THESE TWO LINES:
 #X_ori_df = pd.DataFrame(X_ori) #  columns=['col'+str(i) for i in range(1, cols+1)]  #  index=['row'+str(i) for i in range(1, rows+1)]
 #X_ori_df.insert(0,'idx',['row'+str(i) for i in range(1, rows+1)])
+
+# TO GENERATE TAILORED DATASET IN .CSV FILE FOR HOMOMORPHIC PCA, UNCOMMENT ONLY THE LINE CORRESPONDING TO THE TAILORED DATASET OBTAINED BY the read_data funtion invoked above:
 # X_ori_df.to_csv(path_or_buf="mnist.csv",index=False)
 # X_ori_df.to_csv(path_or_buf="fashion_mnist.csv",index=False)
 #X_ori_df.to_csv(path_or_buf="yale.csv",index=False)
@@ -169,6 +129,8 @@ scoreX = r2_score(X_ori,X_new)
 
 
 
+# TO TEST THE RESULT(EIGENVECTORS) OF THE HOMOMORPHIC PCA, PLEASE SET THE VARIABLE "path" AS THE DIRECTORY OF THE RESULT, AND UNCOMMENT THE FOLLOWING LINES.
+'''
 eigmtx_enc_df = pd.read_csv(path,header=None)
 dominant_eigmtx_enc = np.array(eigmtx_enc_df).T
 for i in range(columns):
@@ -180,6 +142,7 @@ X = X_ori - mu
 X_red = X.dot(dominant_eigmtx_enc)
 X_new = X_red.dot(dominant_eigmtx_enc.T) + mu
 scoreXE = r2_score(X_ori,X_new)
+'''
 
 
 
