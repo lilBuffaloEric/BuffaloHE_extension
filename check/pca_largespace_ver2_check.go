@@ -29,7 +29,7 @@ func PCA_largeSpace_Ver2_check(loadkeysFromDisk bool) {
 		BSGSRatio4Tau := 2
 	*/
 	// Maximum Routines:
-	maxSubRoutes := 2
+	maxSubRoutes := 1
 
 	// N1
 	DSigma_BSGSN1 := 16

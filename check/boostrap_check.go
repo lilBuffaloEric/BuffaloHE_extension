@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -415,7 +416,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 				// copy(ORSB1[j/matrixRows], sbf64)
 				fmt.Printf("the %d th routine done in %s \n", j, time.Since(now))
 				fmt.Printf("ctORSBT at level %d, Scale %f\n", ctORSBT[j/matrixRows].Level(), math.Log2(ctORSBT[j/matrixRows].Scale.Float64()))
-				// auxio.Quick_check_matrix_full(params, sk, ctORSBT[j/matrixRows], d, d)
+				// //auxio.Quick_check_matrix_full(params, sk, ctORSBT[j/matrixRows], d, d)
 				// return
 			}(d, ORSB1, j)
 			if subrouteNum <= 0 {
@@ -459,7 +460,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 
 		/* dbg testing
 		for i := 0; i < len(ctORSBT); i++ {
-			auxio.Quick_check_matrix(params, sk, ctORSBT[i], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctORSBT[i], d, d)
 		}
 		*/
 
@@ -550,16 +551,16 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 					for i := range ctOCSBTemp {
 						ctOCSBSum[i] = ctOCSBTemp[i].CopyNew()
 						//fmt.Printf("First ctOCSBSum[%d] value:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
 					}
 				} else {
 					fmt.Printf("Adding ctOCSBTemp[%d] into ctOCBSum\n", idx)
 					for i := range ctOCSBTemp {
 						//fmt.Printf("New value that will be added to ctOCSBSum[%d]:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBTemp[i], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctOCSBTemp[i], d, d)
 						evaluator.Add(ctOCSBTemp[i], ctOCSBSum[i], ctOCSBSum[i])
 						//fmt.Printf("After adding a new one, ctOCSBSum[%d] value:\n", i)
-						//auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
 					}
 				}
 				cond.L.Unlock()
@@ -578,7 +579,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 				panic(err)
 			}
 			//fmt.Printf("ctCov[%d][%d] before scaling has scale %f, level %d\n", (k-1)/matrixCols, i, math.Log2(ctOCSBSum[i].Scale.Float64()), ctOCSBSum[i].Level())
-			// auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
+			// //auxio.Quick_check_matrix(params, sk, ctOCSBSum[i], d, d)
 			// ctOCSBSum[i] = encryptor.EncryptNew(encoder.EncodeNew(auxio.DecryptDecode(params, sk, ctOCSBSum[i]), MaxLevel, params.DefaultScale(), params.LogSlots()))
 			evaluator.MultByConst(ctOCSBSum[i], 1.0/float64(rows), ctOCSBSum[i])
 			err = evaluator.Rescale(ctOCSBSum[i], params.DefaultScale(), ctOCSBSum[i])
@@ -587,7 +588,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 			}
 			fmt.Printf("ctCov[%d][%d] now has scale %f, level %d\n", (k-1)/matrixCols, i, math.Log2(ctOCSBSum[i].Scale.Float64()), ctOCSBSum[i].Level())
 			ctCov[(k-1)/matrixCols][i] = ctOCSBSum[i].CopyNew()
-			auxio.Quick_check_matrix(params, sk, ctCov[(k-1)/matrixCols][i], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctCov[(k-1)/matrixCols][i], d, d)
 		}
 		galk4MtrxMult = nil
 		fmt.Printf("X*X^T %d/7 process Done in %s\n", (k-1)/matrixCols+1, time.Since(now))
@@ -608,10 +609,10 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 		if err != nil {
 			panic(err)
 		}
-		// auxio.Quick_check_matrix_full(params, sk, ctMean[(k-1)/matrixCols], d, d) // dbg testing
+		// //auxio.Quick_check_matrix_full(params, sk, ctMean[(k-1)/matrixCols], d, d) // dbg testing
 		evaluator.MultByConst(ctMean[(k-1)/matrixCols], 1.0/float64(rows), ctMean[(k-1)/matrixCols])
 		fmt.Printf("Check the MeanVec\n")
-		auxio.Quick_check_matrix(params, sk, ctMean[(k-1)/matrixCols], d, d) // dbg testing
+		//auxio.Quick_check_matrix(params, sk, ctMean[(k-1)/matrixCols], d, d) // dbg testing
 		fmt.Printf("Mean %d/7 process Done in %s\n", (k-1)/matrixCols+1, time.Since(now))
 		elapsed += time.Since(now)
 		// We want to store the ctMean into disk, to reduce the memory occupation...
@@ -646,7 +647,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 			if i < j { // in the previous loop we've got ctCov[k][i] where i<k
 				err = evaluator.Rescale(ctCov[j][i], params.DefaultScale(), ctCov[j][i])
 				fmt.Printf("The ctCov[%d][%d], it will be used to compute ctCov[%d][%d]\n", j, i, i, j)
-				auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
+				//auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
 				if err != nil {
 					panic(err)
 				}
@@ -672,7 +673,7 @@ func PCA_btpVersion_check(loadkeysFromDisk bool, loadPCAkeysFromDisk bool) {
 		}
 		for j := 0; j < len(ctCov); j++ {
 			fmt.Printf("ctCov[%d][%d] stored into disk:\n", i, j)
-			auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 			_, err = Covtracker.StoreUpdateOne(ctCov[i][j])
 			if err != nil {
 				panic(err)
@@ -891,7 +892,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 
 		ctTemp = evaluator.LinearTransform4ArithmeticSeqNew(ctMean[i], TransposeLT)[0]
 		fmt.Printf("The %d-th ctMean^T with scale %f, level %d: \n", i, math.Log2(ctTemp.Scale.Float64()), ctTemp.Level())
-		auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+		//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 		if err != nil {
 			panic(err)
 		}
@@ -916,7 +917,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 		//_, err = auxio.ReadCtVec4file(Covtracker.Fp, Covtracker.Hierarchy[0], ctCov[i], i*Covtracker.Hierarchy[0]*Covtracker.Hierarchy[1])
 		for j := 0; j < len(ctCov); j++ {
 			fmt.Printf("The i:%d, j:%d ctMM^T with scale %f, level %d: \n", i, j, math.Log2(ctMMT[i][j].Scale.Float64()), ctMMT[i][j].Level())
-			auxio.Quick_check_matrix(params, sk, ctMMT[i][j], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctMMT[i][j], d, d)
 			ctCov[i][j] = new(rlwe.Ciphertext)
 			Covtracker.ReadUpdateOne(ctCov[i][j])
 			fmt.Printf("The Original i:%d, j:%d ctX^TX has scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
@@ -948,35 +949,35 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 
 			// evaluator.Rescale(ctCov[i][j], params.DefaultScale(), ctCov[i][j])
 			fmt.Printf("The i:%d, j:%d ctX^TX with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
-			auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 			evaluator.Sub(ctCov[i][j], ctMMT[i][j], ctCov[i][j])
 			fmt.Printf("The i:%d, j:%d ctCov: with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
-			// auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
+			// //auxio.Quick_check_matrix_full(params, sk, ctCov[i][j], d, d)
 			// do one recryption,this is for the following PowerMethod.
 			// ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
-			auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+			//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 
 			if ctCov[i][j].Level() < 6 {
 				if reencryptionMode {
 					// ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
 					btpnow = time.Now()
 					fmt.Printf("Before Bootstrap, ctCov[%d][%d] :\n", i, j)
-					auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+					//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 
 					/*
 						fmt.Printf("Debug scenario: \n")
 						ctTemp := bootstrapper.Bootstrap_dbg(ctCov[i][j])
-						auxio.Quick_check_infos(ctTemp, "ctTemp original")
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_infos(ctTemp, "ctTemp original")
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
 						ctTemp = bootstrapper.Bootstrap_dbg(ctCov[i][j])
-						auxio.Quick_check_infos(ctTemp, "ctTemp after manual re-encrypt")
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_infos(ctTemp, "ctTemp after manual re-encrypt")
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 					*/
 
 					ctCov[i][j] = bootstrapper.Bootstrap(ctCov[i][j])
 					fmt.Printf("After Bootstrap in %s, ctCov[%d][%d]:\n", time.Since(btpnow), i, j)
-					auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+					//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 					elapsed += time.Since(btpnow)
 				} else {
 					ctCov[i][j] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctCov[i][j]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -991,8 +992,8 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 
 	// Compute the k most dominant eigenVectors and the corresponding eigenValues, We will skip the Boostrapping procedure, and use recryption instead.
 	// create a Vi
-
-	ptVi := auxio.Encode_single_float64(params, 1.0, MaxLevel, params.DefaultScale())
+	ptVi := encoder.EncodeNew(generateRandomArray(params.Slots()), MaxLevel, params.DefaultScale(), params.LogSlots())
+	// ptVi := auxio.Encode_single_float64(params, 1.0, MaxLevel, params.DefaultScale())
 	ctVi := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctVip1 := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
 	ctViT := make([]*rlwe.Ciphertext, (cols-1)/matrixCols)
@@ -1006,22 +1007,38 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 	var ctSum *rlwe.Ciphertext
 	// var ctSign *rlwe.Ciphertext
 
-	IterNum := 5
-	NewtonIterNum := 12
+	IterNum := 15
+	// NewtonIterNum := 12
 	VecMod := 1 // We will have two Vector Mod: ColVector Mod (1) & RowVector Mod (0)
+	var InvSRTiters = [14]int{7, 14, 13, 14, 13, 14, 13, 14, 14, 13, 14, 13, 14, 23}
+	if IterNum-1 == 4 {
+		InvSRTiters[3] = 24
+	}
 
 	fmt.Printf("Entering PowerMethod\n")
 	now = time.Now()
 	for k := 0; k < TargetEigVecNum; k++ {
+		VecMod = 1
 		for i := 0; i < len(ctVi); i++ {
+			vec := make([]float64, params.Slots())
+			random_arr := generateRandomArray(matrixCols)
+			if VecMod == 1 {
+				for j := range random_arr {
+					for m := 0; m < matrixCols; m++ {
+						vec[j*matrixCols+m] = random_arr[j]
+					}
+				}
+			} else {
+				for j := 0; i < params.Slots()/matrixCols; i++ {
+					copy(vec[j*matrixCols:(j+1)*matrixCols], random_arr)
+				}
+			}
+			ptVi = encoder.EncodeNew(vec, MaxLevel, params.DefaultScale(), params.LogSlots())
 			ctVi[i] = encryptor.EncryptNew(ptVi)
 		}
-		VecMod = 1
 		for t := 0; t < IterNum; t++ {
 			fmt.Printf("------------------ this is the %dth iteration ---------------\n", t)
-
 			fmt.Printf("Begin Cov LT\n")
-
 			// Check if a re-encryption is needed.
 			if ctVi[0].Level() < 4 || t == IterNum-1 {
 				var ctTemp *rlwe.Ciphertext
@@ -1029,7 +1046,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					/*
 						fmt.Printf("Before Combination:\n")
 						for _, ct := range ctVi {
-							auxio.Quick_check_matrix(params, sk, ct, d, d)
+							//auxio.Quick_check_matrix(params, sk, ct, d, d)
 						}
 					*/
 					ctTemp, err = mtrxmult.ReplicatedVec_Combine_dbg(params, sk, ctVi, d, VecMod)
@@ -1040,10 +1057,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctTemp:\n")
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						ctTemp = bootstrapper.Bootstrap(ctTemp)
 						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1052,7 +1069,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					/*
 						fmt.Printf("After Combination:\n")
 						for _, ct := range ctVi {
-							auxio.Quick_check_matrix(params, sk, ct, d, d)
+							//auxio.Quick_check_matrix(params, sk, ct, d, d)
 						}
 					*/
 					if err != nil {
@@ -1069,10 +1086,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctTemp:\n")
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						ctTemp = bootstrapper.Bootstrap(ctTemp)
 						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1089,27 +1106,27 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				for i := 0; i < len(ctCov); i++ {
 					// We will do ctCov[j][i] * ctVi[j] , but will actually do ColAggregate(\sum(ctCov[i][j] * ctVi[j])) to complete this task, where ctCov[i][j]^T = ctCov[j][i]
 					fmt.Printf("ctVi[%d]:\n", 0)
-					auxio.Quick_check_infos(ctVi[0], "ctVi")
+					//auxio.Quick_check_infos(ctVi[0], "ctVi")
 					ctSum = evaluator.MulNew(ctVi[0], ctCov[i][0]) // Consume one level
 					fmt.Printf("ctCov[%d][%d]:\n", i, 0)
-					auxio.Quick_check_infos(ctCov[i][0], "ctCov")
-					// auxio.Quick_check_matrix(params, sk, ctCov[i][0], d, d)
-					// auxio.Quick_check_matrix(params, sk, ctVi[0], d, d)
+					//auxio.Quick_check_infos(ctCov[i][0], "ctCov")
+					// //auxio.Quick_check_matrix(params, sk, ctCov[i][0], d, d)
+					// //auxio.Quick_check_matrix(params, sk, ctVi[0], d, d)
 					fmt.Printf("MulAndAddResult:\n")
-					auxio.Quick_check_infos(ctSum, "ctSum")
-					// auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					//auxio.Quick_check_infos(ctSum, "ctSum")
+					// //auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					for j := 1; j < len(ctCov); j++ {
 						fmt.Printf("ctCov[%d][%d]:\n", i, j)
-						//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 						fmt.Printf("ctVi[%d]:\n", j)
-						// auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
+						// //auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
 						evaluator.MulAndAdd(ctVi[j], ctCov[i][j], ctSum)
 						fmt.Printf("MulAndAddResult:\n")
-						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						////auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					}
 					evaluator.Relinearize(ctSum, ctSum)
 					//fmt.Printf("Before Aggregation:\n")
-					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					////auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					err = evaluator.Rescale(ctSum, params.DefaultScale(), ctSum)
 					if err != nil {
 						panic(err)
@@ -1119,11 +1136,11 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 						panic(err)
 					}
 					fmt.Printf("The %dth ctSum Aggregated with scale %f level %d: \n", i, math.Log2(ctSum.Scale.Float64()), ctSum.Level())
-					//auxio.Quick_check_matrix_full(params, sk, ctSum, d, d)
+					////auxio.Quick_check_matrix_full(params, sk, ctSum, d, d)
 
 					ctVip1[i] = ctSum.CopyNew()
 					fmt.Printf("The %dth Vip1 with scale %f level %d: \n", i, math.Log2(ctVip1[i].Scale.Float64()), ctVip1[i].Level())
-					//auxio.Quick_check_matrix_full(params, sk, ctVip1[i], d, d)
+					////auxio.Quick_check_matrix_full(params, sk, ctVip1[i], d, d)
 					ctSum = nil
 
 				}
@@ -1135,23 +1152,23 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					// we will do ctCov[i][j] * ctVi[j], but will actually do RowAggregate(\sum(ctCov[j][i] * ctVi[j])) to complete this task, where ctCov[i][j]^T = ctCov[j][i]
 					ctSum = evaluator.MulNew(ctVi[0], ctCov[0][i]) // Consume one level
 					fmt.Printf("ctCov[%d][%d]:\n", 0, i)
-					//auxio.Quick_check_matrix(params, sk, ctCov[0][i], d, d)
+					////auxio.Quick_check_matrix(params, sk, ctCov[0][i], d, d)
 					fmt.Printf("ctVi[%d]:\n", 0)
-					//auxio.Quick_check_matrix(params, sk, ctVi[0], d, d)
+					////auxio.Quick_check_matrix(params, sk, ctVi[0], d, d)
 					fmt.Printf("MulAndAddResult:\n")
-					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					////auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					for j := 1; j < len(ctCov); j++ {
 						fmt.Printf("ctCov[%d][%d]:\n", j, i)
-						//auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
 						fmt.Printf("ctVi[%d]:\n", j)
-						//auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
+						////auxio.Quick_check_matrix(params, sk, ctVi[j], d, d)
 						evaluator.MulAndAdd(ctVi[j], ctCov[j][i], ctSum)
 						fmt.Printf("MulAndAddResult:\n")
-						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						////auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					}
 					evaluator.Relinearize(ctSum, ctSum)
 					//fmt.Printf("Before Aggregation:\n")
-					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					////auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 					err = evaluator.Rescale(ctSum, params.DefaultScale(), ctSum)
 					if err != nil {
 						panic(err)
@@ -1161,11 +1178,11 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 						panic(err)
 					}
 					fmt.Printf("The %dth ctSum Aggregated with scale %f level %d: \n", i, math.Log2(ctSum.Scale.Float64()), ctSum.Level())
-					auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+					//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 
 					ctVip1[i] = ctSum.CopyNew()
 					fmt.Printf("The %dth Vip1 with scale %f level %d: \n", i, math.Log2(ctVip1[i].Scale.Float64()), ctVip1[i].Level())
-					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
+					//auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
 					ctSum = nil
 					// ctSum = encryptor.EncryptZeroNew(params.MaxLevel())
 				}
@@ -1189,7 +1206,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 
 				// Aggregate ctSum
 				fmt.Printf("Before Inner Product:\n")
-				auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+				//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 				// VecMod Now represents the ctVip1's form.
 				if VecMod == 1 {
 					ctSum, err = mtrxmult.Matrix_Aggregate_withRowOrder(params, sk, galk4RowtotalSum, ctSum, d, d, 0)
@@ -1200,7 +1217,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					panic(err)
 				}
 				fmt.Printf("Inner Product with Scale %f, Level %d:\n", math.Log2(ctSum.Scale.Float64()), ctSum.Level())
-				auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+				//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 
 				// Taylor Init Guess:
 				if ctSum.Level() <= 2 {
@@ -1208,10 +1225,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctSum:\n")
-						auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 						ctSum = bootstrapper.Bootstrap(ctSum)
 						fmt.Printf("After Bootstrap in %s, ctSum:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctSum = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctSum), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1223,7 +1240,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					panic(err)
 				}
 				fmt.Printf("Taylor Guess with Scale %f, Level %d:\n", math.Log2(ctGuess.Scale.Float64()), ctGuess.Level())
-				auxio.Quick_check_matrix(params, sk, ctGuess, d, d)
+				//auxio.Quick_check_matrix(params, sk, ctGuess, d, d)
 
 				// Do one Recryption:
 				// ctGuess = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctGuess), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
@@ -1232,10 +1249,14 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				// InvSqrt by Newton:
 				var ctInvsqrt *rlwe.Ciphertext
 				var btptimes int
-				var NewtonIterNumtmp = NewtonIterNum
-				if t == IterNum-2 {
-					NewtonIterNumtmp = NewtonIterNum + 5
-				}
+				//var NewtonIterNumtmp = NewtonIterNum
+				/*
+					if t == IterNum-2 {
+						NewtonIterNumtmp = NewtonIterNum + 5
+					}
+				*/
+				var NewtonIterNumtmp = InvSRTiters[t]
+				fmt.Printf("NewtonIter times: %d\n", NewtonIterNumtmp)
 				if reencryptionMode {
 					ctInvsqrt, btptimes, err = nonpolyfunc.InvSqrtByNewton_btpVer3_dbg(params, rlk, pk, sk, ctSum, ctGuess, NewtonIterNumtmp, MaxLevel, reencryptionMode, bootstrapper) // Consume one level * 3 * NewtonIterNum
 				} else {
@@ -1246,7 +1267,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				}
 				cnt += btptimes
 				fmt.Printf("InvSqrt with Scale %f, Level %d:\n", math.Log2(ctInvsqrt.Scale.Float64()), ctInvsqrt.Level())
-				auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
+				//auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
 
 				// Do one Recryption:
 				// ctInvsqrt = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctInvsqrt), params.LogSlots()), params.MaxLevel(), params.DefaultScale(), params.LogSlots()))
@@ -1258,10 +1279,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctInvsqrt:\n")
-						auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
 						ctInvsqrt = bootstrapper.Bootstrap(ctInvsqrt)
 						fmt.Printf("After Bootstrap in %s, ctInvsqrt:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctInvsqrt, d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctInvsqrt = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctInvsqrt), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1277,10 +1298,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctTemp:\n")
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						ctTemp = bootstrapper.Bootstrap(ctTemp)
 						fmt.Printf("After Bootstrap in %s, ctTemp:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+						//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctTemp = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctTemp), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1294,14 +1315,14 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				}
 				for i := 0; i < len(ctVip1); i++ {
 					fmt.Printf("ctVip1[%d] before normalisation:\n", i)
-					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
+					//auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
 					evaluator.MulRelin(ctVip1[i], ctInvsqrt, ctVip1[i])
 					err = evaluator.Rescale(ctVip1[i], params.DefaultScale(), ctVip1[i]) // Consume one level
 					if err != nil {
 						panic(err)
 					}
 					fmt.Printf("ctVip1[%d] after normalisation:\n", i)
-					auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
+					//auxio.Quick_check_matrix(params, sk, ctVip1[i], d, d)
 
 				}
 				fmt.Printf("ctVip1 after normalisation has Scale %f, Level %d, this will be used to update ctVi\n", math.Log2(ctVip1[0].Scale.Float64()), ctVip1[0].Level())
@@ -1310,7 +1331,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				for i := 0; i < len(ctVip1); i++ {
 					ctVi[i] = ctVip1[i].CopyNew()
 					fmt.Printf("The %dth iteration's Vip1 %d result:\n", t, i)
-					// auxio.Quick_check_matrix_full(params, sk, ctVi[i], d, d)
+					// //auxio.Quick_check_matrix_full(params, sk, ctVi[i], d, d)
 				}
 
 			} else { // if this is the last turn, compute the eigen value corresponding to the eigen vector.
@@ -1327,9 +1348,9 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					for i := 0; i < len(ctVip1); i++ {
 						ctViT[i], err = mtrxmult.ReplicateVec_Switch_Axis(params, sk, galk4RowtotalSum, ctVi[i], d, (VecMod+1)&(2-1)) // Consume one level
 						fmt.Printf("The ctViT with Scale %f, level %d:\n", math.Log2(ctViT[i].Scale.Float64()), ctViT[i].Level())
-						auxio.Quick_check_matrix(params, sk, ctViT[i], d, d)
+						//auxio.Quick_check_matrix(params, sk, ctViT[i], d, d)
 						fmt.Printf("The ctVi  with Scale %f, level %d:\n", math.Log2(ctVi[i].Scale.Float64()), ctVi[i].Level())
-						auxio.Quick_check_matrix(params, sk, ctVi[i], d, d)
+						//auxio.Quick_check_matrix(params, sk, ctVi[i], d, d)
 						if err != nil {
 							panic(err)
 						}
@@ -1356,7 +1377,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 
 				// Aggregate ctSum then we get the eig_val.
 				// fmt.Printf("Before Inner Product:\n")
-				// auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+				// //auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 				// VecMod Now represents the ctVip1's form.
 				if VecMod == 1 { // since ctVip1 is in column mod, then ctSum is the multiple of ctVip1 and ctViT that is in Column mod
 					ctSum, err = mtrxmult.Matrix_Aggregate_withRowOrder(params, sk, galk4RowtotalSum, ctSum, d, d, 0)
@@ -1368,7 +1389,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				}
 				fmt.Printf("Aggregate ctSum then we get the eig_val with Scale %f, level %d:\n", math.Log2(ctSum.Scale.Float64()), ctSum.Level())
 				// DO one Recryption.
-				auxio.Quick_check_matrix(params, sk, ctSum, d, d)
+				//auxio.Quick_check_matrix(params, sk, ctSum, d, d)
 
 				// Store the eig_val:
 				ctEigVal[k] = ctSum.CopyNew()
@@ -1381,10 +1402,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 					if reencryptionMode {
 						btpnow = time.Now()
 						fmt.Printf("Before Bootstrap, ctEigVal[k]:\n")
-						auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
+						//auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
 						ctEigVal[k] = bootstrapper.Bootstrap(ctEigVal[k])
 						fmt.Printf("After Bootstrap in %s, ctEigVal[k]:\n", time.Since(btpnow))
-						auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
+						//auxio.Quick_check_matrix(params, sk, ctEigVal[k], d, d)
 						elapsed += time.Since(btpnow)
 					} else {
 						ctEigVal[k] = encryptor.EncryptNew(encoder.EncodeNew(encoder.Decode(decryptor.DecryptNew(ctEigVal[k]), params.LogSlots()), MaxLevel, params.DefaultScale(), params.LogSlots()))
@@ -1395,10 +1416,10 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 				// Update Cov as the Shifted Cov, We will use container ctMMT to temporarily store the eigvec^T @ eigvec
 				for i := 0; i < len(ctEigVec[k]); i++ {
 					fmt.Printf("Check the ctEigVec[%d][%d] to see wether it is really of form %d:\n", k, i, (VecMod+1)&(2-1))
-					// auxio.Quick_check_matrix_full(params, sk, ctEigVec[k][i], d, d)
+					// //auxio.Quick_check_matrix_full(params, sk, ctEigVec[k][i], d, d)
 					ctTemp = ctViT[i]
 					fmt.Printf("The ctEigVec^T[%d][%d] is with scale %f, level %d: \n", k, i, math.Log2(ctTemp.Scale.Float64()), ctTemp.Level())
-					auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
+					//auxio.Quick_check_matrix(params, sk, ctTemp, d, d)
 					if err != nil {
 						panic(err)
 					}
@@ -1416,13 +1437,13 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 							} else {
 								ctCov[j][i].SetScale(ctMMT[j][i].Scale)
 							}
-							auxio.Quick_check_matrix(params, sk, ctMMT[j][i], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctMMT[j][i], d, d)
 
 							fmt.Printf("The Original ctCov[%d][%d] with scale %f, level %d: \n", i, j, math.Log2(ctCov[j][i].Scale.Float64()), ctCov[j][i].Level())
-							auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
 							ctCov[j][i] = evaluator.SubNew(ctCov[j][i], ctMMT[j][i])
 							fmt.Printf("The Shifted ctCov[%d][%d] with scale %f, level %d: \n", i, j, math.Log2(ctCov[j][i].Scale.Float64()), ctCov[j][i].Level())
-							auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctCov[j][i], d, d)
 						} else if ((VecMod + 1) & (2 - 1)) == 0 { // idx should be flipped here .
 							ctMMT[i][j] = evaluator.MulRelinNew(ctTemp, ctEigVec[k][j])
 							evaluator.Rescale(ctMMT[i][j], params.DefaultScale(), ctMMT[i][j]) // Consume one level
@@ -1434,13 +1455,13 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 							} else {
 								ctCov[i][j].SetScale(ctMMT[i][j].Scale)
 							}
-							auxio.Quick_check_matrix(params, sk, ctMMT[i][j], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctMMT[i][j], d, d)
 
 							fmt.Printf("The Original ctCov[%d][%d] with scale %f, level %d: \n", i, j, math.Log2(ctCov[j][i].Scale.Float64()), ctCov[i][j].Level())
-							auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 							ctCov[i][j] = evaluator.SubNew(ctCov[i][j], ctMMT[i][j])
 							fmt.Printf("The Shifted ctCov[%d][%d] with scale %f, level %d: \n", i, j, math.Log2(ctCov[i][j].Scale.Float64()), ctCov[i][j].Level())
-							auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
+							//auxio.Quick_check_matrix(params, sk, ctCov[i][j], d, d)
 						}
 
 					}
@@ -1457,7 +1478,7 @@ func CovMatrix_btpVersion_check(btpparamsOn bool, reencryptionMode bool) {
 		EigVec := make([]complex128, 0)
 		for j := range ctEigVec[i] {
 			fmt.Printf("Now extract partial EigenVector from ctEigVec[%d][%d]\n", i, j)
-			auxio.Quick_check_matrix_full(params, sk, ctEigVec[i][j], d, d)
+			//auxio.Quick_check_matrix_full(params, sk, ctEigVec[i][j], d, d)
 			partialEigVec_dup := auxio.DecryptDecode(params, sk, ctEigVec[i][j])
 			partialEigVec := make([]complex128, matrixCols)
 			for k := 0; k < matrixCols; k++ {
@@ -1769,4 +1790,18 @@ func printDebug(params ckks.Parameters, ciphertext *rlwe.Ciphertext, valuesWant 
 	fmt.Println()
 
 	return
+}
+
+func generateRandomArray(t int) []float64 {
+	rand.Seed(time.Now().UnixNano()) // 使用当前时间作为随机种子
+
+	arr := make([]float64, t) // 创建长度为t的切片
+
+	for i := 0; i < t; i++ {
+		r := rand.Float64()
+		arr[i] = r // 生成0~1之间的随机浮点数
+	}
+	fmt.Printf("Random: %f,%f,%f,%f", arr[0], arr[1], arr[2], arr[3])
+
+	return arr
 }

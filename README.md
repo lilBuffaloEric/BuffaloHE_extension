@@ -1,5 +1,5 @@
 # BuffaloHE_extension
-An personal extension of Lattigo library. ¯\_(ツ)_/¯
+An personal extension of Lattigo library. ¯\\_(ツ)_/¯
 
 
 Built based on library Lattigo, this extension aims to construct more complex and interesting homomorphic functions using api
