@@ -12,6 +12,7 @@ We now mainly focus on a privacy-preserving PCA protocol for cloud computing sce
 - `mk vendor`
 - `go mod tidy` (draw all dependencies, they will be automatically loaded into `vendor`)
 - Replace the specific files in `vendor/github.com/tuneinsight/lattigo/v4` with the files in `~/BuffaloHE_extension/lattigo_selfmodified`
+- Unzip the `tailored_datasets.rar` and put the `.csv` files under the `project1-fhe_extension_v1.0` directory.
 - Uncomment routines in `check.go`, do `go build check.go` and `go run check.go` to execute expected tests.
 
 More detailed comments are coming soon...
