@@ -15,4 +15,6 @@ We now mainly focus on a privacy-preserving PCA protocol for cloud computing sce
 - Unzip the `tailored_datasets.rar` and put the `.csv` files under the `project1-fhe_extension_v1.0` directory.
 - Uncomment routines in `check.go`, do `go build check.go` and `go run check.go` to execute expected tests.
 
-More detailed comments are coming soon...
+More detailed comments are coming soon....
+
+
