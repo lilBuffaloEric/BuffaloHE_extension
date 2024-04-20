@@ -1,4 +1,4 @@
-module lattigov5_dev
+module lattigov4_dev
 
 go 1.18
 
