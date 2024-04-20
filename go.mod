@@ -3,7 +3,7 @@ module lattigov5_dev
 go 1.18
 
 require (
-	github.com/tuneinsight/lattigo/v5 v5.0.2
+	github.com/tuneinsight/lattigo/v4 v4.1.0
 	github.com/xuri/excelize/v2 v2.7.0
 )
 
