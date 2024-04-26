@@ -46,7 +46,12 @@ func predictDebug(data [][]float64, weightsWant []float64, weightTest []float64,
 			correctTest++
 		}
 		if doPrint {
-			fmt.Println("PredictTest:", (sumTest > 0.5), "\tReal:", (data[i][0] > 0), "\tPredictWant:", (sumWant > 0.5), "\tData:", data[i][0:10])
+			fmt.Print("PredictTest:", (sumTest > 0.5), "\tReal:", (data[i][0] > 0), "\tPredictWant:", (sumWant > 0.5))
+			fmt.Print("\tData:[")
+			for j := 0; j < 10; j++ {
+				fmt.Print("\t", math.Round(data[i][j]*1e3)/1e3)
+			}
+			fmt.Println("\t]")
 		}
 	}
 	return correctWant, correctTest

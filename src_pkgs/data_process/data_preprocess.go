@@ -33,7 +33,7 @@ func NormalizeMaxMin(data [][]int) [][]float64 {
 	return floatData
 }
 
-// 将用0将样本的行数和列数分别填充到2的幂次方
+// 用0将样本的行数和列数分别填充到2的幂次方
 func Padding(data [][]float64, logColSize int, logRowSize int) [][]float64 {
 	col := len(data[0])
 	row := len(data)
