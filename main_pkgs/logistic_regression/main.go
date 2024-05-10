@@ -49,16 +49,15 @@ func main() {
 	sk, pk := kgen.GenKeyPair()
 	rlk := kgen.GenRelinearizationKey(sk, 1)
 	rtk := kgen.GenRotationKeysForRotations([]int{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, -1, -2, -4, -8}, false, sk)
-	encryptor := ckks.NewEncryptor(params, pk)
 	decryptor := ckks.NewDecryptor(params, sk)
 	evaluator := ckks.NewEvaluator(params, rlwe.EvaluationKey{Rlk: rlk, Rtks: rtk})
 
 	// 编码与加密
-	dataCiphertext, _ := dataProc.EncMatrixF64(paddedData, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), encoder, encryptor)
+	dataCiphertext, _ := dataProc.EncMatrixF64(paddedData, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), params, pk)
 	//printDebug(params, dataCiphertext, paddedData[0], decryptor, encoder)
-	weightsCiphertext, _ := dataProc.EncRowVectorF64(weights, 1024, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), encoder, encryptor)
+	weightsCiphertext, _ := dataProc.EncRowVectorF64(weights, 1024, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), params, pk)
 	//printDebug(params, weightsCiphertext, weights, decryptor, encoder)
-	_, firstColPlainText := dataProc.EncRowVectorF64([]float64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 1024, 8, params.DefaultScale(), params.LogSlots(), encoder, nil)
+	_, firstColPlainText := dataProc.EncRowVectorF64([]float64{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, 1024, 8, params.DefaultScale(), params.LogSlots(), params, nil)
 
 	// sigmoid函数近似
 	approxSigmoidReversed := ckks.Approximate(mathFunc.SigmoidReversed, -8.0, 8.0, 14)
@@ -120,8 +119,8 @@ func main() {
 		}
 		evaluator.MultByConst(operateCiphertext, learningRate, operateCiphertext)
 		evaluator.Rescale(operateCiphertext, params.DefaultScale(), operateCiphertext)
-		decodedCiphertext := dataProc.DecCiphertext(operateCiphertext, decryptor, encoder, params.LogSlots())
-		operateCiphertext, _ = dataProc.EncRowVectorF64(typeConv.Complex128ToFloat64(decodedCiphertext), 1, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), encoder, encryptor)
+		decodedCiphertext := dataProc.DecCiphertext(operateCiphertext, params.LogSlots(), params, sk)
+		operateCiphertext, _ = dataProc.EncRowVectorF64(typeConv.Complex128ToFloat64(decodedCiphertext), 1, params.MaxLevel(), params.DefaultScale(), params.LogSlots(), params, pk)
 		evaluator.Add(weightsCiphertext, operateCiphertext, weightsCiphertext)
 		// 明文===============================================================================================================
 		for i := 0; i < len(weights); i++ {
@@ -136,7 +135,7 @@ func main() {
 	}
 
 	// 输出权重
-	plainWeightsDecoded := dataProc.DecCiphertext(weightsCiphertext, decryptor, encoder, params.LogSlots())
+	plainWeightsDecoded := dataProc.DecCiphertext(weightsCiphertext, params.LogSlots(), params, sk)
 	plainWeightsFloat := typeConv.Complex128ToFloat64(plainWeightsDecoded[0:len(testData[0])])
 	fmt.Println()
 	fmt.Println("WeightsTest:", plainWeightsFloat[0:len(testData[0])])
